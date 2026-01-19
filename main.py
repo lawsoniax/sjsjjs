@@ -175,10 +175,9 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         role = interaction.guild.get_role(ROLE_ID)
         if role:
             await user.add_roles(role)
-            role_status = " | Role Added ✅"
     except: role_status = " | Role Error ⚠️"
 
-    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 `{key}`\n⏳ {duration}{role_status}")
+    await interaction.response.send_message(f"Key generated for {user.mention}!\n🔑 `{key}`\n⏳ {duration}{role_status}")
 
 @bot.tree.command(name="banhwid", description="Ban a specific HWID manually")
 async def banhwid(interaction: discord.Interaction, hwid: str):
@@ -337,3 +336,4 @@ if __name__ == '__main__':
     t = threading.Thread(target=run_flask)
     t.start()
     if TOKEN: bot.run(TOKEN)
+
