@@ -11,6 +11,7 @@ import time
 import json
 import secrets
 import string
+import io
 
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
@@ -26,7 +27,7 @@ log.setLevel(logging.ERROR)
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True
+intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
@@ -68,6 +69,7 @@ async def on_ready():
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
+
 @bot.tree.command(name="genkey", description="Generate a key assigned to a user")
 @app_commands.describe(duration="Time (e.g. 30d, 12h)", user="Select the user to assign the key")
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
@@ -88,7 +90,7 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         "expires": time.time() + (hours * 3600),
         "created_at": time.time(),
         "duration_txt": duration,
-        "assigned_id": user.id
+        "assigned_id": user.id 
     }
     save_db()
     
@@ -108,6 +110,65 @@ async def delkey(interaction: discord.Interaction, key: str):
     else:
         await interaction.response.send_message("Key not found.", ephemeral=True)
 
+@bot.tree.command(name="listkeys", description="Show all active keys with precise remaining time")
+async def listkeys(interaction: discord.Interaction):
+    if interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("You do not have permission.", ephemeral=True)
+        return
+
+    if not database["keys"]:
+        await interaction.response.send_message("❌ No active keys found.", ephemeral=True)
+        return
+
+    active_keys = []
+    now = time.time()
+    guild = bot.get_guild(GUILD_ID)
+
+    for key, info in list(database["keys"].items()):
+        if now > info["expires"]:
+            continue
+            
+        remaining_sec = int(info["expires"] - now)
+        days = remaining_sec // 86400
+        hours = (remaining_sec % 86400) // 3600
+        minutes = (remaining_sec % 3600) // 60
+        
+        time_left_str = f"{days}d {hours}h {minutes}m"
+        original_duration = info.get("duration_txt", "Unknown")
+
+        user_display = "Unknown"
+        assigned_id = info.get("assigned_id")
+        if assigned_id:
+            if guild:
+                member = guild.get_member(assigned_id)
+                if member:
+                    user_display = f"{member.name} ({member.id})"
+                else:
+                    user_display = f"Left Server ({assigned_id})"
+            else:
+                user_display = f"ID: {assigned_id}"
+
+        hwid_status = "✅ Linked" if info["hwid"] else "❌ Unlinked"
+        
+        line = (f"🔑 `{key}`\n"
+                f"👤 **User:** {user_display}\n"
+                f"⏳ **Left:** {time_left_str} (Total: {original_duration})\n"
+                f"💻 **HWID:** {hwid_status}\n"
+                "-----------------------------")
+        active_keys.append(line)
+
+    if not active_keys:
+        await interaction.response.send_message("❌ No active keys found (All expired).", ephemeral=True)
+        return
+
+    full_text = "\n".join(active_keys)
+    
+    if len(full_text) > 1900:
+        file = discord.File(io.StringIO(full_text), filename="active_keys.txt")
+        await interaction.response.send_message("📂 List is too long, sent as file:", file=file)
+    else:
+        await interaction.response.send_message(f"**📊 Active Keys List:**\n\n{full_text}")
+
 @app.route('/', methods=['GET'])
 def home():
     return "Anarchy System Online."
@@ -125,7 +186,7 @@ def verify():
             return jsonify({"valid": False, "msg": "Invalid Key"})
             
         key_data = database["keys"][key]
-
+        
         if time.time() > key_data["expires"]:
             del database["keys"][key]
             save_db()
@@ -180,5 +241,3 @@ if __name__ == '__main__':
     if TOKEN:
         try: bot.run(TOKEN)
         except: pass
-
-
