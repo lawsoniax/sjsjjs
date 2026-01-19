@@ -17,13 +17,10 @@ import io
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
 
-# !!! KENDI DISCORD ID'NI YAZ !!!
+# !!! DUZENLEME GEREKLI ALANLAR !!!
 ADMIN_ID = 1358830140343193821
-# !!! SUNUCU ID'SINI YAZ (ZORUNLU) !!!
 GUILD_ID = 1460981897730592798
-
-# !!! "VERIFIED USER" ROL ID'SINI YAZ (YENI) !!!
-ROLE_ID = 1462941857922416661
+ROLE_ID = 1462941857922416661 
 
 DB_FILE = "anarchy_db.json"
 # ----------------
@@ -31,22 +28,26 @@ DB_FILE = "anarchy_db.json"
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
-# Setup Bot
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True # Sunucudan cikani gormek icin SART
+intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
 # Data Structure
-database = {"keys": {}, "users": {}}
+# "history": Daha once key almis kisilerin ID'lerini tutar (Kalıcı Liste)
+database = {"keys": {}, "users": {}, "history": []}
 
 def load_db():
     global database
     if os.path.exists(DB_FILE):
         try:
-            with open(DB_FILE, "r") as f: database = json.load(f)
-        except: database = {"keys": {}, "users": {}}
+            with open(DB_FILE, "r") as f: 
+                data = json.load(f)
+                # Eski veritabaninda history yoksa hata vermesin diye kontrol
+                if "history" not in data: data["history"] = []
+                database = data
+        except: database = {"keys": {}, "users": {}, "history": []}
 
 def save_db():
     try:
@@ -55,7 +56,7 @@ def save_db():
 
 load_db()
 
-# --- TIME PARSER HELPER ---
+# --- TIME PARSER ---
 def parse_duration(duration_str: str):
     duration_str = duration_str.lower()
     try:
@@ -79,25 +80,19 @@ async def on_ready():
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
-# --- YENI: KULLANICI SUNUCUDAN CIKARSA KEYI SIL ---
 @bot.event
 async def on_member_remove(member):
-    # Bu fonksiyon biri sunucudan ciktiginda calisir
     deleted_key = None
-    
-    # Kullanicinin keyi var mi diye veritabanini tara
-    # (Dictionary degisirken silmek hata verir, o yuzden list() ile kopyaliyoruz)
+    # Kullanici sunucudan cikarsa keyini sil ama history'den silme!
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
             del database["keys"][key]
             deleted_key = key
-            # Bir kullanicinin sadece 1 keyi olacagini varsayiyoruz, donguyu kir
             break
             
     if deleted_key:
         save_db()
         print(f"[AUTO-DELETE] User {member.name} left. Key {deleted_key} deleted.")
-        # Istersen buraya bir log kanalina mesaj atma kodu da eklenebilir.
 
 # --- SLASH COMMANDS ---
 
@@ -107,6 +102,18 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     if interaction.user.id != ADMIN_ID:
         await interaction.response.send_message("You do not have permission.", ephemeral=True)
         return
+
+    # 1. KONTROL: Kullanici daha once key almis mi?
+    # Eger kullanici ID'si gecmiste varsa, yeni key vermeyi reddet.
+    if user.id in database["history"]:
+         await interaction.response.send_message(f"🚫 **Action Denied:** User {user.mention} has already received a key before!\n⚠️ *One key per user policy is active.*", ephemeral=True)
+         return
+
+    # 2. KONTROL: Mevcut aktif bir keyi var mi?
+    for info in database["keys"].values():
+        if info.get("assigned_id") == user.id:
+            await interaction.response.send_message(f"🚫 **Action Denied:** User {user.mention} already has an active key!", ephemeral=True)
+            return
 
     hours = parse_duration(duration)
     if hours is None:
@@ -123,9 +130,12 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         "duration_txt": duration,
         "assigned_id": user.id 
     }
+    
+    # Kullaniciyi gecmise ekle (Kara Liste mantigi)
+    database["history"].append(user.id)
     save_db()
     
-    # --- YENI: ROL VERME ISLEMI ---
+    # Rol Verme
     role_status = ""
     try:
         role = interaction.guild.get_role(ROLE_ID)
@@ -137,32 +147,38 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     except Exception as e:
         role_status = f"\n⚠️ **Role Error:** Check bot hierarchy ({e})"
 
-    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 **Key:** `{key}`\n⏳ **Duration:** {duration}\n⚠️ *You must remain in the Discord server to use this key.*{role_status}")
+    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 **Key:** `{key}`\n⏳ **Duration:** {duration}\n⚠️ *If you leave the server, this key will be deleted permanently and you won't get a new one.*{role_status}")
 
-@bot.tree.command(name="delkey", description="Delete an existing key")
-@app_commands.describe(key="The key to delete")
-async def delkey(interaction: discord.Interaction, key: str):
+# --- RESET KOMUTU (Gerekirse birine tekrar hak tanimak icin) ---
+@bot.tree.command(name="resetuser", description="Allow a user to get a key again (Remove from history)")
+@app_commands.describe(user="User to reset")
+async def resetuser(interaction: discord.Interaction, user: discord.Member):
     if interaction.user.id != ADMIN_ID:
-        await interaction.response.send_message("You do not have permission.", ephemeral=True)
+        await interaction.response.send_message("Permission Denied.", ephemeral=True)
         return
 
+    if user.id in database["history"]:
+        database["history"].remove(user.id)
+        save_db()
+        await interaction.response.send_message(f"✅ User {user.mention} has been reset. They can receive a new key now.")
+    else:
+        await interaction.response.send_message(f"User {user.mention} is not in the history list.", ephemeral=True)
+
+@bot.tree.command(name="delkey", description="Delete an existing key")
+async def delkey(interaction: discord.Interaction, key: str):
+    if interaction.user.id != ADMIN_ID: return
     if key in database["keys"]:
-        # Keyi silerken opsiyonel olarak kullanicinin rolunu de alabiliriz ama
-        # simdilik sadece keyi siliyoruz.
         del database["keys"][key]
         save_db()
-        await interaction.response.send_message(f"Key `{key}` has been deleted.")
+        await interaction.response.send_message(f"Key `{key}` deleted.")
     else:
         await interaction.response.send_message("Key not found.", ephemeral=True)
 
-@bot.tree.command(name="listkeys", description="Show all active keys with precise remaining time")
+@bot.tree.command(name="listkeys", description="Show all active keys")
 async def listkeys(interaction: discord.Interaction):
-    if interaction.user.id != ADMIN_ID:
-        await interaction.response.send_message("You do not have permission.", ephemeral=True)
-        return
-
+    if interaction.user.id != ADMIN_ID: return
     if not database["keys"]:
-        await interaction.response.send_message("❌ No active keys found.", ephemeral=True)
+        await interaction.response.send_message("❌ No active keys.", ephemeral=True)
         return
 
     active_keys = []
@@ -170,54 +186,28 @@ async def listkeys(interaction: discord.Interaction):
     guild = bot.get_guild(GUILD_ID)
 
     for key, info in list(database["keys"].items()):
-        if now > info["expires"]:
-            continue
-            
-        remaining_sec = int(info["expires"] - now)
-        days = remaining_sec // 86400
-        hours = (remaining_sec % 86400) // 3600
-        minutes = (remaining_sec % 3600) // 60
+        if now > info["expires"]: continue
+        remaining = int(info["expires"] - now)
+        days = remaining // 86400
+        hours = (remaining % 86400) // 3600
         
-        time_left_str = f"{days}d {hours}h {minutes}m"
-        original_duration = info.get("duration_txt", "Unknown")
-
         user_display = "Unknown"
-        assigned_id = info.get("assigned_id")
-        if assigned_id:
-            if guild:
-                member = guild.get_member(assigned_id)
-                if member:
-                    user_display = f"{member.name} ({member.id})"
-                else:
-                    user_display = f"Left Server ({assigned_id})"
-            else:
-                user_display = f"ID: {assigned_id}"
+        if info.get("assigned_id") and guild:
+            m = guild.get_member(info["assigned_id"])
+            user_display = f"{m.name} ({m.id})" if m else f"Left ({info['assigned_id']})"
 
-        hwid_status = "✅ Linked" if info["hwid"] else "❌ Unlinked"
-        
-        line = (f"🔑 `{key}`\n"
-                f"👤 **User:** {user_display}\n"
-                f"⏳ **Left:** {time_left_str} (Total: {original_duration})\n"
-                f"💻 **HWID:** {hwid_status}\n"
-                "-----------------------------")
-        active_keys.append(line)
-
-    if not active_keys:
-        await interaction.response.send_message("❌ No active keys found (All expired).", ephemeral=True)
-        return
+        active_keys.append(f"🔑 `{key}` | 👤 {user_display} | ⏳ {days}d {hours}h")
 
     full_text = "\n".join(active_keys)
-    
     if len(full_text) > 1900:
-        file = discord.File(io.StringIO(full_text), filename="active_keys.txt")
-        await interaction.response.send_message("📂 List is too long, sent as file:", file=file)
+        file = discord.File(io.StringIO(full_text), filename="keys.txt")
+        await interaction.response.send_message("📂 List too long:", file=file)
     else:
-        await interaction.response.send_message(f"**📊 Active Keys List:**\n\n{full_text}")
+        await interaction.response.send_message(f"**Active Keys:**\n{full_text}")
 
 # --- ROBLOX API ---
 @app.route('/', methods=['GET'])
-def home():
-    return "Anarchy System Online."
+def home(): return "Anarchy System Online."
 
 @app.route('/verify', methods=['POST'])
 def verify():
@@ -225,69 +215,32 @@ def verify():
         data = request.json
         key = data.get("key")
         hwid = data.get("hwid")
-        
         if not key or not hwid: return jsonify({"valid": False, "msg": "Missing Data"})
+        if key not in database["keys"]: return jsonify({"valid": False, "msg": "Invalid Key"})
         
-        if key not in database["keys"]:
-            return jsonify({"valid": False, "msg": "Invalid Key"})
-            
-        key_data = database["keys"][key]
-        
-        if time.time() > key_data["expires"]:
-            del database["keys"][key]
-            save_db()
+        info = database["keys"][key]
+        if time.time() > info["expires"]:
+            del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "Key Expired"})
-            
-        assigned_id = key_data.get("assigned_id")
-        if assigned_id:
-            guild = bot.get_guild(GUILD_ID)
-            if guild:
-                member = guild.get_member(assigned_id)
-                if not member:
-                    # Eger kullanici cikmissa, hem keyi sil hem red cevabi ver
-                    # (Normalde on_member_remove siler ama cift koruma olsun)
-                    del database["keys"][key]
-                    save_db()
-                    return jsonify({"valid": False, "msg": "Left Discord Server - Key Deleted"})
-            else:
-                return jsonify({"valid": False, "msg": "Server Auth Error"})
 
-        if key_data["hwid"] is None:
-            key_data["hwid"] = hwid
-            save_db()
-            return jsonify({"valid": True, "msg": "Key Activated"})
-        elif key_data["hwid"] == hwid:
-            return jsonify({"valid": True, "msg": "Login Successful"})
-        else:
-            return jsonify({"valid": False, "msg": "HWID Mismatch"})
-            
-    except Exception as e:
-        return jsonify({"valid": False, "msg": "Server Error"})
+        if info.get("assigned_id"):
+            g = bot.get_guild(GUILD_ID)
+            if g:
+                if not g.get_member(info["assigned_id"]):
+                    del database["keys"][key]; save_db()
+                    return jsonify({"valid": False, "msg": "Left Discord - Key Deleted"})
+            else: return jsonify({"valid": False, "msg": "Server Auth Error"})
 
-@app.route('/network', methods=['POST'])
-def network():
-    try:
-        data = request.json
-        uid = str(data.get("userId"))
-        job = str(data.get("jobId"))
-        now = time.time()
-        
-        database["users"][uid] = {"job": job, "seen": now}
-        
-        toremove = [k for k,v in database["users"].items() if now - v["seen"] > 60]
-        for k in toremove: del database["users"][k]
-        
-        users = [{"id": k, "job": v["job"]} for k,v in database["users"].items()]
-        return jsonify({"users": users})
-    except:
-        return jsonify({"users": []})
+        if info["hwid"] is None:
+            info["hwid"] = hwid; save_db()
+            return jsonify({"valid": True, "msg": "Activated"})
+        elif info["hwid"] == hwid: return jsonify({"valid": True, "msg": "Login Success"})
+        else: return jsonify({"valid": False, "msg": "HWID Mismatch"})
+    except: return jsonify({"valid": False, "msg": "Error"})
 
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+def run_flask(): app.run(host='0.0.0.0', port=8080)
 
 if __name__ == '__main__':
     t = threading.Thread(target=run_flask)
     t.start()
-    if TOKEN:
-        try: bot.run(TOKEN)
-        except: pass
+    if TOKEN: bot.run(TOKEN)
