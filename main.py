@@ -13,24 +13,32 @@ import secrets
 import string
 import io
 
+# --- SETTINGS ---
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
 
+# !!! KENDI DISCORD ID'NI YAZ !!!
 ADMIN_ID = 1358830140343193821
-
+# !!! SUNUCU ID'SINI YAZ (ZORUNLU) !!!
 GUILD_ID = 1460981897730592798
 
+# !!! "VERIFIED USER" ROL ID'SINI YAZ (YENI) !!!
+ROLE_ID = 1462941857922416661
+
 DB_FILE = "anarchy_db.json"
+# ----------------
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
+# Setup Bot
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True 
+intents.members = True # Sunucudan cikani gormek icin SART
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
+# Data Structure
 database = {"keys": {}, "users": {}}
 
 def load_db():
@@ -47,6 +55,7 @@ def save_db():
 
 load_db()
 
+# --- TIME PARSER HELPER ---
 def parse_duration(duration_str: str):
     duration_str = duration_str.lower()
     try:
@@ -60,6 +69,7 @@ def parse_duration(duration_str: str):
     except:
         return None
 
+# --- BOT EVENTS ---
 @bot.event
 async def on_ready():
     print(f"Bot Logged in as: {bot.user}")
@@ -69,6 +79,27 @@ async def on_ready():
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
+# --- YENI: KULLANICI SUNUCUDAN CIKARSA KEYI SIL ---
+@bot.event
+async def on_member_remove(member):
+    # Bu fonksiyon biri sunucudan ciktiginda calisir
+    deleted_key = None
+    
+    # Kullanicinin keyi var mi diye veritabanini tara
+    # (Dictionary degisirken silmek hata verir, o yuzden list() ile kopyaliyoruz)
+    for key, info in list(database["keys"].items()):
+        if info.get("assigned_id") == member.id:
+            del database["keys"][key]
+            deleted_key = key
+            # Bir kullanicinin sadece 1 keyi olacagini varsayiyoruz, donguyu kir
+            break
+            
+    if deleted_key:
+        save_db()
+        print(f"[AUTO-DELETE] User {member.name} left. Key {deleted_key} deleted.")
+        # Istersen buraya bir log kanalina mesaj atma kodu da eklenebilir.
+
+# --- SLASH COMMANDS ---
 
 @bot.tree.command(name="genkey", description="Generate a key assigned to a user")
 @app_commands.describe(duration="Time (e.g. 30d, 12h)", user="Select the user to assign the key")
@@ -94,7 +125,19 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     }
     save_db()
     
-    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 **Key:** `{key}`\n⏳ **Duration:** {duration}\n⚠️ *You must remain in the Discord server to use this key.*")
+    # --- YENI: ROL VERME ISLEMI ---
+    role_status = ""
+    try:
+        role = interaction.guild.get_role(ROLE_ID)
+        if role:
+            await user.add_roles(role)
+            role_status = "\n✅ **Role:** 'Verified User' added!"
+        else:
+            role_status = "\n⚠️ **Role Error:** Role ID not found."
+    except Exception as e:
+        role_status = f"\n⚠️ **Role Error:** Check bot hierarchy ({e})"
+
+    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 **Key:** `{key}`\n⏳ **Duration:** {duration}\n⚠️ *You must remain in the Discord server to use this key.*{role_status}")
 
 @bot.tree.command(name="delkey", description="Delete an existing key")
 @app_commands.describe(key="The key to delete")
@@ -104,6 +147,8 @@ async def delkey(interaction: discord.Interaction, key: str):
         return
 
     if key in database["keys"]:
+        # Keyi silerken opsiyonel olarak kullanicinin rolunu de alabiliriz ama
+        # simdilik sadece keyi siliyoruz.
         del database["keys"][key]
         save_db()
         await interaction.response.send_message(f"Key `{key}` has been deleted.")
@@ -169,6 +214,7 @@ async def listkeys(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(f"**📊 Active Keys List:**\n\n{full_text}")
 
+# --- ROBLOX API ---
 @app.route('/', methods=['GET'])
 def home():
     return "Anarchy System Online."
@@ -198,7 +244,11 @@ def verify():
             if guild:
                 member = guild.get_member(assigned_id)
                 if not member:
-                    return jsonify({"valid": False, "msg": "You must be in the Discord Server!"})
+                    # Eger kullanici cikmissa, hem keyi sil hem red cevabi ver
+                    # (Normalde on_member_remove siler ama cift koruma olsun)
+                    del database["keys"][key]
+                    save_db()
+                    return jsonify({"valid": False, "msg": "Left Discord Server - Key Deleted"})
             else:
                 return jsonify({"valid": False, "msg": "Server Auth Error"})
 
