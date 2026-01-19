@@ -12,26 +12,24 @@ import json
 import secrets
 import string
 
-# --- SETTINGS ---
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
 
-# !!! IMPORTANT: PUT YOUR DISCORD ID HERE !!!
-ADMIN_ID = 1358830140343193821 
+ADMIN_ID = 1234567890 
+
+GUILD_ID = 9876543210 
 
 DB_FILE = "anarchy_db.json"
-# ----------------
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
-# Setup Bot with Slash Command Support
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# Data Structure
 database = {"keys": {}, "users": {}}
 
 def load_db():
@@ -48,9 +46,7 @@ def save_db():
 
 load_db()
 
-# --- TIME PARSER HELPER ---
 def parse_duration(duration_str: str):
-    """Converts 1d -> 24, 1h -> 1, 30 -> 30"""
     duration_str = duration_str.lower()
     try:
         if duration_str.endswith("d"):
@@ -59,57 +55,48 @@ def parse_duration(duration_str: str):
         elif duration_str.endswith("h"):
             return int(duration_str.replace("h", ""))
         else:
-            return int(duration_str) # Default to hours if no letter
+            return int(duration_str)
     except:
         return None
 
-# --- BOT EVENTS ---
 @bot.event
 async def on_ready():
     print(f"Bot Logged in as: {bot.user}")
     try:
-        # Sync Slash Commands with Discord
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
-# --- SLASH COMMANDS ---
-
-@bot.tree.command(name="genkey", description="Generate a license key (e.g. 1d, 12h, 30)")
-@app_commands.describe(duration="Duration: use 'd' for days, 'h' for hours (Example: 7d)")
-async def genkey(interaction: discord.Interaction, duration: str):
-    # 1. Permission Check
+@bot.tree.command(name="genkey", description="Generate a key assigned to a user")
+@app_commands.describe(duration="Time (e.g. 30d, 12h)", user="Select the user to assign the key")
+async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
     if interaction.user.id != ADMIN_ID:
         await interaction.response.send_message("You do not have permission.", ephemeral=True)
         return
 
-    # 2. Parse Duration (14d -> Hours)
     hours = parse_duration(duration)
     if hours is None:
-        await interaction.response.send_message("Invalid format! Use: 1d, 24h, or 12", ephemeral=True)
+        await interaction.response.send_message("Invalid format! Use: 30d, 24h, or 12", ephemeral=True)
         return
 
-    # 3. Generate Key
     raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     key = f"ANARCHY-{raw}"
     
-    # 4. Save to Database
     database["keys"][key] = {
         "hwid": None, 
         "expires": time.time() + (hours * 3600),
         "created_at": time.time(),
-        "duration_txt": duration # Store original text for display
+        "duration_txt": duration,
+        "assigned_id": user.id
     }
     save_db()
     
-    # 5. Send Response (Public Message)
-    await interaction.response.send_message(f"**Key Generated:**\n`{key}`\nDuration: {duration} ({hours} Hours)")
+    await interaction.response.send_message(f"✅ Key generated for {user.mention}!\n🔑 **Key:** `{key}`\n⏳ **Duration:** {duration}\n⚠️ *You must remain in the Discord server to use this key.*")
 
 @bot.tree.command(name="delkey", description="Delete an existing key")
 @app_commands.describe(key="The key to delete")
 async def delkey(interaction: discord.Interaction, key: str):
-    # Permission Check
     if interaction.user.id != ADMIN_ID:
         await interaction.response.send_message("You do not have permission.", ephemeral=True)
         return
@@ -119,9 +106,8 @@ async def delkey(interaction: discord.Interaction, key: str):
         save_db()
         await interaction.response.send_message(f"Key `{key}` has been deleted.")
     else:
-        await interaction.response.send_message("Key not found in database.", ephemeral=True)
+        await interaction.response.send_message("Key not found.", ephemeral=True)
 
-# --- ROBLOX API ---
 @app.route('/', methods=['GET'])
 def home():
     return "Anarchy System Online."
@@ -139,12 +125,22 @@ def verify():
             return jsonify({"valid": False, "msg": "Invalid Key"})
             
         key_data = database["keys"][key]
-        
+
         if time.time() > key_data["expires"]:
             del database["keys"][key]
             save_db()
             return jsonify({"valid": False, "msg": "Key Expired"})
             
+        assigned_id = key_data.get("assigned_id")
+        if assigned_id:
+            guild = bot.get_guild(GUILD_ID)
+            if guild:
+                member = guild.get_member(assigned_id)
+                if not member:
+                    return jsonify({"valid": False, "msg": "You must be in the Discord Server!"})
+            else:
+                return jsonify({"valid": False, "msg": "Server Auth Error"})
+
         if key_data["hwid"] is None:
             key_data["hwid"] = hwid
             save_db()
