@@ -15,7 +15,7 @@ import string
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
 
-ADMIN_ID = 1234567890 
+ADMIN_ID = 1358830140343193821
 
 GUILD_ID = 9876543210 
 
@@ -180,3 +180,4 @@ if __name__ == '__main__':
     if TOKEN:
         try: bot.run(TOKEN)
         except: pass
+
