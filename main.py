@@ -17,7 +17,7 @@ CHANNEL_ID = 1462815057669918821
 
 ADMIN_ID = 1358830140343193821
 
-GUILD_ID = 9876543210 
+GUILD_ID = 1460981897730592798
 
 DB_FILE = "anarchy_db.json"
 
@@ -180,4 +180,5 @@ if __name__ == '__main__':
     if TOKEN:
         try: bot.run(TOKEN)
         except: pass
+
 
