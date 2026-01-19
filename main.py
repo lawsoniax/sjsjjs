@@ -11,14 +11,12 @@ import json
 import secrets
 import string
 
-# --- AYARLAR ---
-# Token'i kodun icine YAZMIYORUZ. Render ayarlarindan cekecek.
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
-ADMIN_ID = 1234567890 # BURAYA KENDI DISCORD ID'NI SAYI OLARAK YAZ (Tirnak isareti olmadan)
-DB_FILE = "anarchy_db.json"
-# ----------------
 
+ADMIN_ID = 1358830140343193821
+
+DB_FILE = "anarchy_db.json"
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
@@ -27,7 +25,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# Veri Yapısı: { "keys": {}, "users": {} }
 database = {"keys": {}, "users": {}}
 
 def load_db():
@@ -44,23 +41,19 @@ def save_db():
 
 load_db()
 
-# --- DISCORD BOT KOMUTLARI ---
 @bot.event
 async def on_ready():
-    print(f"Bot Hazır: {bot.user}")
+    print(f"Bot Ready: {bot.user}")
 
 @bot.command()
 async def genkey(ctx, hours: int = 24):
-    # Yetki Kontrolü
     if ctx.author.id != ADMIN_ID:
-        await ctx.send("❌ Yetkin yok!")
+        await ctx.send("You do not have permission.")
         return
 
-    # Rastgele Key Üret
     raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     key = f"ANARCHY-{raw}"
     
-    # Veritabanına Ekle
     database["keys"][key] = {
         "hwid": None, 
         "expires": time.time() + (hours * 3600),
@@ -68,12 +61,11 @@ async def genkey(ctx, hours: int = 24):
     }
     save_db()
     
-    # DM Gönder
     try:
-        await ctx.author.send(f"🔑 **Key Oluşturuldu!**\n`{key}`\n⏳ Süre: {hours} Saat")
-        await ctx.send(f"✅ Key DM olarak gönderildi.")
+        await ctx.author.send(f"**Key Generated:**\n`{key}`\nDuration: {hours} Hours")
+        await ctx.send("Key sent to DM.")
     except:
-        await ctx.send(f"❌ DM Kapalı! Key: `{key}`")
+        await ctx.send(f"DM Closed. Key: `{key}`")
 
 @bot.command()
 async def delkey(ctx, key: str):
@@ -81,11 +73,10 @@ async def delkey(ctx, key: str):
     if key in database["keys"]:
         del database["keys"][key]
         save_db()
-        await ctx.send("🗑️ Key silindi.")
+        await ctx.send("Key deleted.")
     else:
-        await ctx.send("❌ Key bulunamadı.")
+        await ctx.send("Key not found.")
 
-# --- ROBLOX API ---
 @app.route('/', methods=['GET'])
 def home():
     return "Anarchy System Online."
@@ -97,29 +88,29 @@ def verify():
         key = data.get("key")
         hwid = data.get("hwid")
         
-        if not key or not hwid: return jsonify({"valid": False, "msg": "Eksik veri!"})
+        if not key or not hwid: return jsonify({"valid": False, "msg": "Missing data."})
         
         if key not in database["keys"]:
-            return jsonify({"valid": False, "msg": "Geçersiz Key!"})
+            return jsonify({"valid": False, "msg": "Invalid Key."})
             
         key_data = database["keys"][key]
         
         if time.time() > key_data["expires"]:
             del database["keys"][key]
             save_db()
-            return jsonify({"valid": False, "msg": "Key süresi dolmuş!"})
+            return jsonify({"valid": False, "msg": "Key expired."})
             
         if key_data["hwid"] is None:
             key_data["hwid"] = hwid
             save_db()
-            return jsonify({"valid": True, "msg": "Key aktif edildi!"})
+            return jsonify({"valid": True, "msg": "Key activated."})
         elif key_data["hwid"] == hwid:
-            return jsonify({"valid": True, "msg": "Giriş başarılı."})
+            return jsonify({"valid": True, "msg": "Login successful."})
         else:
-            return jsonify({"valid": False, "msg": "HWID Uyuşmazlığı!"})
+            return jsonify({"valid": False, "msg": "HWID Mismatch."})
             
     except Exception as e:
-        return jsonify({"valid": False, "msg": "Sunucu hatası."})
+        return jsonify({"valid": False, "msg": "Server error."})
 
 @app.route('/network', methods=['POST'])
 def network():
