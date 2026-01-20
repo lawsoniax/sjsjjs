@@ -17,7 +17,8 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1462815057669918821
 ADMIN_ID = 1358830140343193821 
 GUILD_ID = 1460981897730592798 
-ROLE_ID = 1462941857922416661
+VERIFIED_ROLE_ID = 1462941857922416661
+MEMBER_ROLE_ID = 1461016842582757478
 DB_FILE = "anarchy_db.json"
 
 log = logging.getLogger('werkzeug')
@@ -150,15 +151,19 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     database["history"].append(user.id)
     save_db()
     
-    role_status = ""
     try:
-        role = interaction.guild.get_role(ROLE_ID)
-        if role:
-            await user.add_roles(role)
-            role_status = "\n**Status:** Verified Role Assigned"
-    except: role_status = "\n**Status:** Role Assignment Failed"
+        verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
+        member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
 
-    await interaction.response.send_message(f"**License Generated Successfully**\n\n**User:** {user.mention}\n**Key:** `{key}`\n**Duration:** {duration}{role_status}")
+        if verified_role:
+            await user.add_roles(verified_role)
+        
+        if member_role and member_role in user.roles:
+            await user.remove_roles(member_role)
+    except Exception as e:
+        print(f"Role Update Error: {e}")
+
+    await interaction.response.send_message(f"**License Generated Successfully**\n\n**User:** {user.mention}\n**Key:** `{key}`\n**Duration:** {duration}")
 
 @bot.tree.command(name="banhwid", description="Manually blacklist a Hardware ID")
 async def banhwid(interaction: discord.Interaction, hwid: str):
