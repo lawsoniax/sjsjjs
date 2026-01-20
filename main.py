@@ -42,23 +42,35 @@ def load_db():
                     if k not in data: data[k] = [] if "list" in k else {}
                 database = data
         except: pass
+
 def save_db():
-    try: with open(DB_FILE, "w") as f: json.dump(database, f)
-    except: pass
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(database, f)
+    except:
+        pass
+
 load_db()
 
 def parse_duration(s):
     s = s.lower()
-    try: return int(s.replace("d",""))*24 if "d" in s else int(s.replace("h","")) if "h" in s else int(s)
+    try: 
+        if "d" in s:
+            return int(s.replace("d",""))*24
+        elif "h" in s:
+            return int(s.replace("h",""))
+        else:
+            return int(s)
     except: return None
 
+# --- DM GÖNDERME FONKSİYONU ---
 async def send_dm_code(user_id, code):
     try:
         user = await bot.fetch_user(user_id)
         if user:
-            embed = discord.Embed(title="🔐 Security Check", color=0xF1C40F)
-            embed.description = f"Daily security verification required.\n\n**Code:** `{code}`\n\nEnter this code in the script."
-            embed.set_footer(text="Valid for 24 hours.")
+            embed = discord.Embed(title="🔐 Login Verification", color=0xF1C40F)
+            embed.description = f"A new device is trying to access your script.\n\n**Code:** `{code}`\n\nEnter this code inside the **Roblox Script** window."
+            embed.set_footer(text="Do not share this code.")
             await user.send(embed=embed)
             return True
     except Exception as e:
@@ -129,33 +141,31 @@ def verify():
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "Key Expired"})
 
+        # CHECK DISCORD
         g = bot.get_guild(GUILD_ID)
         if g and not g.get_member(info["assigned_id"]):
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "User left Discord"})
 
-        # --- GÜNLÜK KONTROL SİSTEMİ ---
-        
-        # 1. HWID Eşleşiyor mu?
+        # --- LOGIN LOGIC ---
         if info["hwid"] == hwid: 
-            # 2. Son doğrulama üzerinden 24 saat (86400 sn) geçti mi?
+            # 24 SAAT KURALI
             last_check = info.get("last_otp_verify", 0)
             if time.time() - last_check > 86400:
-                # SÜRE DOLMUŞ -> YENİ KOD İSTE
+                # SÜRE DOLDU -> YENİ KOD İSTE
                 if "otp" not in info:
                     info["otp"] = str(random.randint(100000, 999999))
-                    info["temp_hwid"] = hwid # Mevcut HWID'yi tekrar teyit et
+                    info["temp_hwid"] = hwid
                     save_db()
                 
                 asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
-                return jsonify({"valid": False, "msg": "OTP_SENT"}) # Script'e kod sor emri
+                return jsonify({"valid": False, "msg": "OTP_SENT"})
             else:
-                # SÜRE DOLMAMIŞ -> GİRİŞ BAŞARILI
                 rem = int(info["expires"] - time.time())
                 return jsonify({"valid": True, "msg": "Welcome Back", "left": f"{rem//86400}d"})
             
         elif info["hwid"] is None:
-            # YENİ CİHAZ -> KOD İSTE
+            # YENİ CİHAZ
             if "otp" not in info:
                 info["otp"] = str(random.randint(100000, 999999))
                 info["temp_hwid"] = hwid
@@ -177,10 +187,12 @@ def check_otp():
         if key not in database["keys"]: return jsonify({"valid": False})
         info = database["keys"][key]
         
+        # OTP DOĞRULAMA
         if info.get("otp") == code:
-            info["hwid"] = info["temp_hwid"]
-            info["last_otp_verify"] = time.time() # DOĞRULAMA ZAMANINI KAYDET
-            del info["otp"]; del info["temp_hwid"]
+            info["hwid"] = info["temp_hwid"] # HWID KİLİTLE
+            info["last_otp_verify"] = time.time() # ZAMAN DAMGASI
+            if "otp" in info: del info["otp"]
+            if "temp_hwid" in info: del info["temp_hwid"]
             save_db()
             rem = int(info["expires"] - time.time())
             return jsonify({"valid": True, "left": f"{rem//86400}d"})
@@ -234,7 +246,7 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         "hwid": None, "expires": time.time() + (h * 3600),
         "created_at": time.time(), "duration_txt": duration, 
         "assigned_id": user.id, "last_reset": 0, "last_roblox_name": "N/A",
-        "last_otp_verify": 0 
+        "last_otp_verify": 0
     }
     save_db()
     
