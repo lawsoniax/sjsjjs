@@ -297,14 +297,39 @@ def verify():
                     return jsonify({"valid": False, "msg": "Authentication Failed: User not in Discord"})
             else: return jsonify({"valid": False, "msg": "Server Error"})
 
+        # Calculate time left
+        remaining = int(info["expires"] - time.time())
+        d = remaining // 86400
+        h = (remaining % 86400) // 3600
+        left_str = f"{d}d {h}h"
+
         if info["hwid"] is None:
             info["hwid"] = hwid; save_db()
-            return jsonify({"valid": True, "msg": "Activation Successful"})
-        elif info["hwid"] == hwid: return jsonify({"valid": True, "msg": "Login Successful"})
+            return jsonify({"valid": True, "msg": "Activation Successful", "left": left_str})
+        elif info["hwid"] == hwid: 
+            return jsonify({"valid": True, "msg": "Login Successful", "left": left_str})
         else: return jsonify({"valid": False, "msg": "HWID Mismatch"})
     except Exception as e:
         print(e)
         return jsonify({"valid": False, "msg": "Internal Server Error"})
+
+@app.route('/network', methods=['POST'])
+def network():
+    try:
+        data = request.json
+        uid = str(data.get("userId"))
+        job = str(data.get("jobId"))
+        now = time.time()
+        
+        database["users"][uid] = {"job": job, "seen": now}
+        
+        toremove = [k for k,v in database["users"].items() if now - v["seen"] > 60]
+        for k in toremove: del database["users"][k]
+        
+        users = [{"id": k, "job": v["job"]} for k,v in database["users"].items()]
+        return jsonify({"users": users})
+    except:
+        return jsonify({"users": []})
 
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
