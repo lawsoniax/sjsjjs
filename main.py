@@ -91,27 +91,39 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # Auto-ban logic for leaving members
+    # Admin is immune
     if member.id == ADMIN_ID: return
 
     deleted_key = None
     hwid_to_ban = None
     
+    # 1. Check if user has a key
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
             if info.get("hwid"):
                 hwid_to_ban = info["hwid"]
+            
+            # Delete key
             del database["keys"][key]
             deleted_key = key
             break      
     
+    # 2. PUNISHMENT IF KEY EXISTS
     if deleted_key:
+        # A) Blacklist HWID (Prevents alt accounts on same PC)
         if hwid_to_ban and hwid_to_ban not in database["blacklisted_hwids"]:
             database["blacklisted_hwids"].append(hwid_to_ban)
-            print(f"[SECURITY] Member {member.name} left. HWID Blacklisted.")
+            print(f"[SECURITY] Member {member.name} left with Active Key. HWID Blacklisted.")
         
         save_db()
         print(f"[SECURITY] License revoked for {member.name}.")
+
+        # B) Ban from Discord (Prevents re-joining)
+        try:
+            await member.ban(reason="Anarchy Security: Left server while holding a license (Potential Seller).")
+            print(f"[SECURITY] BANNED {member.name} from Discord Server.")
+        except Exception as e:
+            print(f"[ERROR] Could not ban {member.name}: {e}")
 
 async def log_to_discord(data, user_id, status, discord_identity):
     await bot.wait_until_ready()
@@ -124,7 +136,6 @@ async def log_to_discord(data, user_id, status, discord_identity):
     
     profile_url = f"https://www.roblox.com/users/{user_id}/profile"
     
-    # Roblox Data
     r_display = data.get('display_name', 'Unknown')
     r_user = data.get('username', 'Unknown')
     game = data.get('game', 'Unknown')
@@ -132,21 +143,18 @@ async def log_to_discord(data, user_id, status, discord_identity):
     job = data.get('job_id', 'Unknown')
     executor = data.get('executor', 'Unknown')
     
-    # 1. Identity Field (Double Identity)
     embed.add_field(
         name="User Identification", 
         value=f"**Discord:** {discord_identity}\n**Roblox:** [{r_display}]({profile_url}) (@{r_user})\n**ID:** `{user_id}`", 
         inline=False
     )
     
-    # 2. Session Data
     embed.add_field(
         name="Session Information", 
         value=f"**Game:** {game}\n**Server:** {server_plrs} Players\n**Job ID:** `{job}`", 
         inline=False
     )
 
-    # 3. Technical Data
     embed.add_field(
         name="Technical Specs", 
         value=f"**Executor:** {executor}\n**Ping:** {data.get('ping', 0)}ms | **FPS:** {data.get('fps', 0)}", 
@@ -163,7 +171,6 @@ async def log_to_discord(data, user_id, status, discord_identity):
         
     embed.set_footer(text=footer_text)
 
-    # Update or Send New Message
     msg_id = user_sessions.get(user_id, {}).get('msg_id')
     if msg_id:
         try:
@@ -189,6 +196,7 @@ def verify():
         hwid = data.get("hwid")
         if not key or not hwid: return jsonify({"valid": False, "msg": "Missing Parameters"})
         
+        # HWID CHECK
         if hwid in database["blacklisted_hwids"]:
              return jsonify({"valid": False, "msg": "ACCESS DENIED - HARDWARE BANNED"})
 
@@ -200,6 +208,7 @@ def verify():
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "License Expired"})
 
+        # Check Discord Membership
         if info.get("assigned_id"):
             g = bot.get_guild(GUILD_ID)
             if g:
@@ -212,12 +221,18 @@ def verify():
         h = (remaining % 86400) // 3600
         left_str = f"{d}d {h}h"
 
+        # HWID LOCKING SYSTEM (Key Satışını Önler)
         if info["hwid"] is None:
-            info["hwid"] = hwid; save_db()
-            return jsonify({"valid": True, "msg": "Activation Successful", "left": left_str})
+            # İlk giriş: Keyi bu bilgisayara kilitle
+            info["hwid"] = hwid
+            save_db()
+            return jsonify({"valid": True, "msg": "Activation Successful (HWID Locked)", "left": left_str})
         elif info["hwid"] == hwid: 
+            # Doğru bilgisayar
             return jsonify({"valid": True, "msg": "Login Successful", "left": left_str})
-        else: return jsonify({"valid": False, "msg": "HWID Mismatch"})
+        else: 
+            # Yanlış bilgisayar (Key çalınmış veya satılmış olabilir)
+            return jsonify({"valid": False, "msg": "HWID Mismatch: Key is locked to another PC."})
 
     except Exception as e:
         return jsonify({"valid": False, "msg": "Server Error"})
@@ -267,7 +282,6 @@ def update_log():
     discord_id_str = "Unlinked / Unknown"
     found_discord_id = None
     
-    # 1. Try finding via HWID mapping
     if hwid:
         for key, info in database["keys"].items():
             if info.get("hwid") == hwid:
@@ -319,7 +333,38 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         if m_role and m_role in user.roles: await user.remove_roles(m_role)
     except: pass
 
-    await interaction.response.send_message(f"**License Created**\nUser: {user.mention}\nKey: `{key}`\nDuration: {duration}")
+    await interaction.response.send_message(f"**License Generated**\nUser: {user.mention}\nKey: `{key}`\nDuration: {duration}")
+
+@bot.tree.command(name="delkey", description="Manually revoke a license key")
+@app_commands.describe(key="License Key to delete")
+async def delkey(interaction: discord.Interaction, key: str):
+    if interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("Access Denied.", ephemeral=True)
+        return
+
+    if key in database["keys"]:
+        # Key sahibinin ID'sini al (varsa)
+        user_id = database["keys"][key].get("assigned_id")
+        
+        # Key'i sil
+        del database["keys"][key]
+        save_db()
+        
+        msg = f"Key `{key}` has been successfully revoked."
+        
+        # Eğer kullanıcı sunucudaysa rolünü almayı dene (Opsiyonel)
+        if user_id:
+            try:
+                member = interaction.guild.get_member(user_id)
+                v_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
+                if member and v_role:
+                    await member.remove_roles(v_role)
+                    msg += " (Role removed from user)"
+            except: pass
+
+        await interaction.response.send_message(msg)
+    else:
+        await interaction.response.send_message(f"Key `{key}` not found in database.", ephemeral=True)
 
 @bot.tree.command(name="ban_roblox_user", description="Ban a Roblox ID Globally")
 async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
@@ -356,7 +401,7 @@ async def unbanhwid(interaction: discord.Interaction, hwid: str):
     if hwid in database["blacklisted_hwids"]:
         database["blacklisted_hwids"].remove(hwid)
         save_db()
-        await interaction.response.send_message("HWID unbanned.")
+        await interaction.response.send_message(f"HWID unbanned.")
     else: await interaction.response.send_message("HWID not found.")
 
 @bot.tree.command(name="listkeys", description="View active licenses")
