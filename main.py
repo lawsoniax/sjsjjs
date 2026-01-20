@@ -103,6 +103,8 @@ async def log_discord(data, uid, status, d_id):
     
     hwid = data.get('hwid')
     rbx_name = f"{data.get('display_name')} (@{data.get('username')})"
+    
+    # Update Name via Loop as well
     if hwid:
         for k, v in database["keys"].items():
             if v.get("hwid") == hwid:
@@ -133,15 +135,24 @@ def verify():
         data = request.json
         key = data.get("key"); hwid = data.get("hwid")
         
+        # İSİM GÜNCELLEME (YENİ EKLENDİ)
+        username = data.get("username")
+        display_name = data.get("display_name")
+        
         if hwid in database["blacklisted_hwids"]: return jsonify({"valid": False, "msg": "HWID BANNED"})
         if key not in database["keys"]: return jsonify({"valid": False, "msg": "Invalid Key"})
         
         info = database["keys"][key]
+        
+        # Veritabanına ismi kaydet
+        if username and display_name:
+            info["last_roblox_name"] = f"{display_name} (@{username})"
+            save_db()
+
         if time.time() > info["expires"]:
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "Key Expired"})
 
-        # CHECK DISCORD
         g = bot.get_guild(GUILD_ID)
         if g and not g.get_member(info["assigned_id"]):
             del database["keys"][key]; save_db()
@@ -152,7 +163,6 @@ def verify():
             # 24 SAAT KURALI
             last_check = info.get("last_otp_verify", 0)
             if time.time() - last_check > 86400:
-                # SÜRE DOLDU -> YENİ KOD İSTE
                 if "otp" not in info:
                     info["otp"] = str(random.randint(100000, 999999))
                     info["temp_hwid"] = hwid
@@ -165,7 +175,6 @@ def verify():
                 return jsonify({"valid": True, "msg": "Welcome Back", "left": f"{rem//86400}d"})
             
         elif info["hwid"] is None:
-            # YENİ CİHAZ
             if "otp" not in info:
                 info["otp"] = str(random.randint(100000, 999999))
                 info["temp_hwid"] = hwid
@@ -187,12 +196,18 @@ def check_otp():
         if key not in database["keys"]: return jsonify({"valid": False})
         info = database["keys"][key]
         
-        # OTP DOĞRULAMA
         if info.get("otp") == code:
-            info["hwid"] = info["temp_hwid"] # HWID KİLİTLE
-            info["last_otp_verify"] = time.time() # ZAMAN DAMGASI
+            info["hwid"] = info["temp_hwid"]
+            info["last_otp_verify"] = time.time()
             if "otp" in info: del info["otp"]
             if "temp_hwid" in info: del info["temp_hwid"]
+            
+            # OTP sırasında da ismi güncelle (Garanti olsun)
+            username = data.get("username")
+            display_name = data.get("display_name")
+            if username and display_name:
+                info["last_roblox_name"] = f"{display_name} (@{username})"
+            
             save_db()
             rem = int(info["expires"] - time.time())
             return jsonify({"valid": True, "left": f"{rem//86400}d"})
