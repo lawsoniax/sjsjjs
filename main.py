@@ -12,6 +12,7 @@ import json
 import secrets
 import string
 import io
+import random
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") 
@@ -50,11 +51,9 @@ def load_db():
         try:
             with open(DB_FILE, "r") as f: 
                 data = json.load(f)
-                if "history" not in data: data["history"] = []
-                if "blacklisted_hwids" not in data: data["blacklisted_hwids"] = []
-                if "blacklisted_ids" not in data: data["blacklisted_ids"] = []
-                if "keys" not in data: data["keys"] = {}
-                if "users" not in data: data["users"] = {}
+                # Ensure schema integrity
+                for k in ["keys", "users", "history", "blacklisted_hwids", "blacklisted_ids"]:
+                    if k not in data: data[k] = [] if "list" in k else {}
                 database = data
                 print("[SYSTEM] Database loaded successfully.")
         except Exception as e: 
@@ -91,36 +90,30 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # Admin is immune
     if member.id == ADMIN_ID: return
 
     deleted_key = None
     hwid_to_ban = None
     
-    # 1. Check if user has a key
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
             if info.get("hwid"):
                 hwid_to_ban = info["hwid"]
             
-            # Delete key
             del database["keys"][key]
             deleted_key = key
             break      
     
-    # 2. PUNISHMENT IF KEY EXISTS
     if deleted_key:
-        # A) Blacklist HWID (Prevents alt accounts on same PC)
         if hwid_to_ban and hwid_to_ban not in database["blacklisted_hwids"]:
             database["blacklisted_hwids"].append(hwid_to_ban)
-            print(f"[SECURITY] Member {member.name} left with Active Key. HWID Blacklisted.")
+            print(f"[SECURITY] Member {member.name} left. HWID Blacklisted.")
         
         save_db()
         print(f"[SECURITY] License revoked for {member.name}.")
 
-        # B) Ban from Discord (Prevents re-joining)
         try:
-            await member.ban(reason="Anarchy Security: Left server while holding a license (Potential Seller).")
+            await member.ban(reason="Anarchy Security: Left server while holding a license.")
             print(f"[SECURITY] BANNED {member.name} from Discord Server.")
         except Exception as e:
             print(f"[ERROR] Could not ban {member.name}: {e}")
@@ -196,43 +189,55 @@ def verify():
         hwid = data.get("hwid")
         if not key or not hwid: return jsonify({"valid": False, "msg": "Missing Parameters"})
         
-        # HWID CHECK
+        # 1. HWID Blacklist Check
         if hwid in database["blacklisted_hwids"]:
              return jsonify({"valid": False, "msg": "ACCESS DENIED - HARDWARE BANNED"})
 
+        # 2. Key Check
         if key not in database["keys"]: return jsonify({"valid": False, "msg": "Invalid License Key"})
         
         info = database["keys"][key]
 
+        # 3. Expiry Check
         if time.time() > info["expires"]:
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "License Expired"})
 
-        # Check Discord Membership
-        if info.get("assigned_id"):
-            g = bot.get_guild(GUILD_ID)
-            if g:
-                if not g.get_member(info["assigned_id"]):
-                    del database["keys"][key]; save_db()
-                    return jsonify({"valid": False, "msg": "Verification Failed: User not in Discord"})
+        # 4. Claim Check (New System)
+        if info.get("assigned_id") is None:
+            return jsonify({"valid": False, "msg": "UNCLAIMED KEY\nGo to Discord and type:\n/redeem " + key})
+
+        # 5. Discord Membership Check
+        g = bot.get_guild(GUILD_ID)
+        if g and not g.get_member(info["assigned_id"]):
+            del database["keys"][key]; save_db()
+            return jsonify({"valid": False, "msg": "Verification Failed: User not in Discord"})
 
         remaining = int(info["expires"] - time.time())
         d = remaining // 86400
         h = (remaining % 86400) // 3600
         left_str = f"{d}d {h}h"
 
-        # HWID LOCKING SYSTEM (Key Satışını Önler)
-        if info["hwid"] is None:
-            # İlk giriş: Keyi bu bilgisayara kilitle
-            info["hwid"] = hwid
-            save_db()
-            return jsonify({"valid": True, "msg": "Activation Successful (HWID Locked)", "left": left_str})
-        elif info["hwid"] == hwid: 
-            # Doğru bilgisayar
-            return jsonify({"valid": True, "msg": "Login Successful", "left": left_str})
+        # 6. AUTO-LOGIN & OTP SYSTEM
+        if info["hwid"] == hwid: 
+            # KNOWN DEVICE -> AUTO LOGIN
+            return jsonify({"valid": True, "msg": "Welcome Back", "left": left_str})
+            
+        elif info["hwid"] is None:
+            # NEW DEVICE -> REQUIRE OTP
+            if "otp" not in info:
+                info["otp"] = str(random.randint(10000, 99999))
+                info["temp_hwid"] = hwid
+                save_db()
+            
+            return jsonify({
+                "valid": False, 
+                "msg": "OTP_REQUIRED", 
+                "code": info["otp"]
+            })
+            
         else: 
-            # Yanlış bilgisayar (Key çalınmış veya satılmış olabilir)
-            return jsonify({"valid": False, "msg": "HWID Mismatch: Key is locked to another PC."})
+            return jsonify({"valid": False, "msg": "HWID Mismatch: Key locked to another device."})
 
     except Exception as e:
         return jsonify({"valid": False, "msg": "Server Error"})
@@ -300,137 +305,128 @@ def update_log():
 
 # --- DISCORD COMMANDS ---
 
-@bot.tree.command(name="genkey", description="Generate License")
-@app_commands.describe(duration="Time (30d, 12h)", user="Target User")
-async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
-    if interaction.user.id != ADMIN_ID:
-        await interaction.response.send_message("Access Denied.", ephemeral=True); return
-
-    for info in database["keys"].values():
-        if info.get("assigned_id") == user.id:
-            await interaction.response.send_message(f"User {user.mention} already has a license.", ephemeral=True); return
-
-    hours = parse_duration(duration)
-    if not hours: await interaction.response.send_message("Invalid duration.", ephemeral=True); return
-
+@bot.tree.command(name="genkey", description="Create Unclaimed License")
+@app_commands.describe(duration="30d, 12h", user="Optional: Pre-assign")
+async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member = None):
+    if interaction.user.id != ADMIN_ID: await interaction.response.send_message("Access Denied.", ephemeral=True); return
+    
+    h = parse_duration(duration)
+    if not h: await interaction.response.send_message("Invalid Format.", ephemeral=True); return
+    
     raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     key = f"ANARCHY-{raw}"
     
+    assigned = user.id if user else None
+    
     database["keys"][key] = {
         "hwid": None, 
-        "expires": time.time() + (hours * 3600),
+        "expires": time.time() + (h * 3600),
         "created_at": time.time(),
         "duration_txt": duration,
-        "assigned_id": user.id 
+        "assigned_id": assigned
     }
-    database["history"].append(user.id)
+    save_db()
+    
+    msg = f"**License Generated**\nKey: `{key}`\nDuration: {duration}"
+    if assigned: msg += f"\nAssigned to: {user.mention}"
+    else: msg += "\n**Status:** Unclaimed (User must type `/redeem {key}`)"
+    
+    await interaction.response.send_message(msg)
+
+@bot.tree.command(name="redeem", description="Claim a license key to your account")
+async def redeem(interaction: discord.Interaction, key: str):
+    if key not in database["keys"]:
+        await interaction.response.send_message("Invalid Key.", ephemeral=True); return
+    
+    info = database["keys"][key]
+    
+    if info.get("assigned_id") is not None:
+        await interaction.response.send_message("This key is already claimed.", ephemeral=True); return
+
+    # 1 User = 1 Key Rule
+    for k, v in database["keys"].items():
+        if v.get("assigned_id") == interaction.user.id:
+            await interaction.response.send_message("You already have an active license.", ephemeral=True); return
+        
+    info["assigned_id"] = interaction.user.id
     save_db()
     
     try:
-        v_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
-        m_role = interaction.guild.get_role(MEMBER_ROLE_ID)
-        if v_role: await user.add_roles(v_role)
-        if m_role and m_role in user.roles: await user.remove_roles(m_role)
+        r = interaction.guild.get_role(VERIFIED_ROLE_ID)
+        if r: await interaction.user.add_roles(r)
     except: pass
+    
+    await interaction.response.send_message(f"✅ **Success!** Key `{key}` is now linked to your account.\nYou can now login in the script.", ephemeral=True)
 
-    await interaction.response.send_message(f"**License Generated**\nUser: {user.mention}\nKey: `{key}`\nDuration: {duration}")
+@bot.tree.command(name="activate", description="Verify Login OTP")
+async def activate(interaction: discord.Interaction, code: str):
+    for key, info in database["keys"].items():
+        if info.get("otp") == code:
+            if info.get("assigned_id") == interaction.user.id:
+                info["hwid"] = info["temp_hwid"]
+                del info["otp"]
+                del info["temp_hwid"]
+                save_db()
+                await interaction.response.send_message("✅ **Device Verified!** You can login now.", ephemeral=True)
+                return
+            else:
+                await interaction.response.send_message("❌ Access Denied. You do not own this key.", ephemeral=True); return
+    await interaction.response.send_message("❌ Invalid Code.", ephemeral=True)
 
-@bot.tree.command(name="delkey", description="Manually revoke a license key")
-@app_commands.describe(key="License Key to delete")
+@bot.tree.command(name="delkey", description="Admin: Revoke Key")
 async def delkey(interaction: discord.Interaction, key: str):
-    if interaction.user.id != ADMIN_ID:
-        await interaction.response.send_message("Access Denied.", ephemeral=True)
-        return
-
+    if interaction.user.id != ADMIN_ID: return
     if key in database["keys"]:
-        # Key sahibinin ID'sini al (varsa)
         user_id = database["keys"][key].get("assigned_id")
-        
-        # Key'i sil
         del database["keys"][key]
         save_db()
-        
-        msg = f"Key `{key}` has been successfully revoked."
-        
-        # Eğer kullanıcı sunucudaysa rolünü almayı dene (Opsiyonel)
+        msg = f"Key `{key}` revoked."
         if user_id:
             try:
-                member = interaction.guild.get_member(user_id)
-                v_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
-                if member and v_role:
-                    await member.remove_roles(v_role)
-                    msg += " (Role removed from user)"
+                m = interaction.guild.get_member(user_id)
+                r = interaction.guild.get_role(VERIFIED_ROLE_ID)
+                if m and r: await m.remove_roles(r); msg += " (Role removed)"
             except: pass
-
         await interaction.response.send_message(msg)
-    else:
-        await interaction.response.send_message(f"Key `{key}` not found in database.", ephemeral=True)
+    else: await interaction.response.send_message("Not found.")
 
-@bot.tree.command(name="ban_roblox_user", description="Ban a Roblox ID Globally")
+@bot.tree.command(name="reset_hwid", description="Admin: Reset HWID")
+async def reset_hwid(interaction: discord.Interaction, user: discord.Member):
+    if interaction.user.id != ADMIN_ID: return
+    for k, v in database["keys"].items():
+        if v.get("assigned_id") == user.id:
+            v["hwid"] = None; save_db()
+            await interaction.response.send_message(f"Reset HWID for {user.mention}. They must verify again.")
+            return
+    await interaction.response.send_message("User has no key.")
+
+@bot.tree.command(name="ban_roblox_user", description="Global Ban Roblox ID")
 async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
     if interaction.user.id != ADMIN_ID: return
     if roblox_id not in database["blacklisted_ids"]:
         database["blacklisted_ids"].append(roblox_id)
         save_db()
-        await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been globally banned.")
-    else:
-        await interaction.response.send_message("ID already banned.")
+        await interaction.response.send_message(f"Roblox ID `{roblox_id}` banned.")
+    else: await interaction.response.send_message("Already banned.")
 
-@bot.tree.command(name="reset_user", description="Reset user history (Allow new key)")
-async def reset_user(interaction: discord.Interaction, user: discord.Member):
-    if interaction.user.id != ADMIN_ID: return
-    if user.id in database["history"]:
-        database["history"].remove(user.id)
-        save_db()
-        await interaction.response.send_message(f"User {user.mention} reset.")
-    else:
-        await interaction.response.send_message("User history not found.", ephemeral=True)
-
-@bot.tree.command(name="banhwid", description="Blacklist HWID")
-async def banhwid(interaction: discord.Interaction, hwid: str):
-    if interaction.user.id != ADMIN_ID: return
-    if hwid not in database["blacklisted_hwids"]:
-        database["blacklisted_hwids"].append(hwid)
-        save_db()
-        await interaction.response.send_message(f"HWID `{hwid}` banned.")
-    else: await interaction.response.send_message("HWID already banned.")
-
-@bot.tree.command(name="unbanhwid", description="Unban HWID")
-async def unbanhwid(interaction: discord.Interaction, hwid: str):
-    if interaction.user.id != ADMIN_ID: return
-    if hwid in database["blacklisted_hwids"]:
-        database["blacklisted_hwids"].remove(hwid)
-        save_db()
-        await interaction.response.send_message(f"HWID unbanned.")
-    else: await interaction.response.send_message("HWID not found.")
-
-@bot.tree.command(name="listkeys", description="View active licenses")
+@bot.tree.command(name="listkeys", description="Admin: List Active Keys")
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id != ADMIN_ID: return
-    if not database["keys"]: await interaction.response.send_message("No keys.", ephemeral=True); return
+    if not database["keys"]: await interaction.response.send_message("No active keys.", ephemeral=True); return
     
     lines = []
-    now = time.time()
-    guild = bot.get_guild(GUILD_ID)
+    g = bot.get_guild(GUILD_ID)
 
-    for key, info in list(database["keys"].items()):
-        if now > info["expires"]: continue
-        rem = int(info["expires"] - now)
-        d = rem // 86400
-        h = (rem % 86400) // 3600
+    for k, v in list(database["keys"].items()):
+        u = "Unclaimed"
+        if v.get("assigned_id"):
+            m = g.get_member(v["assigned_id"])
+            u = f"{m.name} ({m.id})" if m else f"Left ({v['assigned_id']})"
         
-        u_str = "Unknown"
-        if info.get("assigned_id") and guild:
-            m = guild.get_member(info["assigned_id"])
-            u_str = f"{m.name}" if m else f"Left ({info['assigned_id']})"
-        
-        lines.append(f"`{key}` | User: {u_str} | Time: {d}d {h}h | HWID: {info['hwid'] or 'Pending'}")
+        lines.append(f"`{k}` | {u} | {v.get('duration_txt')}")
 
-    full = "\n".join(lines)
-    if len(full) > 1900:
-        f = discord.File(io.StringIO(full), filename="keys.txt")
-        await interaction.response.send_message("List attached.", file=f)
-    else: await interaction.response.send_message(f"**Active Licenses:**\n{full}")
+    f = discord.File(io.StringIO("\n".join(lines)), filename="keys.txt")
+    await interaction.response.send_message("Active License List:", file=f)
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
