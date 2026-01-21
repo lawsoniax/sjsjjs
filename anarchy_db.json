@@ -1,141 +1,348 @@
 {
-  "blacklisted_hwids": [],
-  "blacklisted_ids": [],
-  "history": [],
-  "users": {},
   "keys": {
-    "ANARCHY-X2D82DRJ61PSN010": {
-      "assigned_id": 1358830140343193821,
-      "hwid": "AA66B127-0258-4D2D-B7F7-35D024DCBE81",
-      "expires": 1772000000,
-      "created_at": 1769000000,
-      "duration_txt": "30d (Restored)"
-    },
     "ANARCHY-NZROJ5F4CEKZUDBZ": {
-      "assigned_id": 1145376450594230314,
-      "hwid": "31F91DC9-147A-47D2-99A4-C248D99A3983",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "vexmivhael (@wolf_haoo)",
+      "last_otp_verify": 0
     },
     "ANARCHY-CZ5GVGZE4W6J1PTC": {
-      "assigned_id": 695120961678344222,
-      "hwid": "d14ff525-2695-4519-9e83-6835f3649a71",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
-    },
-    "ANARCHY-V8GCVCYR5ZYH0526": {
-      "assigned_id": 1098383502631776256,
-      "hwid": "b1d72c1b-267a-4566-b26b-6d9f1faf0f25",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-8O71MY1FQ3TXFKN5": {
-      "assigned_id": 1374518202977226752,
-      "hwid": "1A754E77-87DF-45E1-A354-A9D4964B3CC2",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-0YIXA75QVT6PDRAU": {
-      "assigned_id": 1370850629869895803,
-      "hwid": "A9A394BA-6074-4DCE-82D8-65C305DA856B",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-6MJQA5HWECR7ZZML": {
-      "assigned_id": 800442704412672020,
-      "hwid": "2B8CC9BD-EA8C-449F-98C6-81A38D0EAEE0",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Messy (@yoshordybad)",
+      "last_otp_verify": 0
     },
     "ANARCHY-FMKOB454POWMWIK5": {
-      "assigned_id": 1387717057218613268,
-      "hwid": "4DEAF605-597C-4C37-9900-9EA1669DF3FF",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-G4DRP7H6BT44P0YE": {
-      "assigned_id": 1462329665480818760,
       "hwid": null,
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Maria (@Imbackatrobloxmp4)",
+      "last_otp_verify": 0
     },
     "ANARCHY-LROA5FD9095NH6SM": {
-      "assigned_id": 597497240596250625,
-      "hwid": "6A9D3D98-1392-420A-950F-2B37D2E40F1A",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "LarrysLot (@LarrysLot)",
+      "last_otp_verify": 0
     },
     "ANARCHY-JYS7OLUHXDUSM3GV": {
-      "assigned_id": 1304085021824516168,
-      "hwid": "4B071722-E242-4FA3-AE12-A097A05FFD34",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "RIOT_Nyx (@RzvYLcNWkpm)",
+      "last_otp_verify": 0
     },
     "ANARCHY-5LIVRP7HCDZGDJFN": {
-      "assigned_id": 1332793512810250343,
       "hwid": null,
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-ITSIZSJYWGIYPWAI": {
-      "assigned_id": 509159101197058048,
-      "hwid": "46D07551-31FF-4B77-9EE2-06B40695A688",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "tink (@tinksouffle)",
+      "last_otp_verify": 0
     },
     "ANARCHY-506ETM8OTZV1XSIV": {
-      "assigned_id": 1288935684039508072,
       "hwid": null,
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-WDIJ86UISSPW83RV": {
-      "assigned_id": 527635906652405780,
-      "hwid": "120373ef-557e-4efc-8134-40a8079a247c",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-FKK2FFPCMHGGRLQP": {
-      "assigned_id": 854268265776676865,
-      "hwid": "E122A7B9-9038-46B8-A2ED-9F4CECBDE401",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-P6EKTRBF6PWYVOEW": {
-      "assigned_id": 761182959331704833,
       "hwid": null,
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-8332RNF1LD7GYUXQ": {
-      "assigned_id": 866963375002222612,
-      "hwid": "E02FB6EC-0DA9-462A-AD49-5E3C5849465F",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
     },
     "ANARCHY-KIW3E5HDTTFCFL1Q": {
-      "assigned_id": 1004510331311239228,
-      "hwid": "7A7B19C0-543E-483E-AE4C-307589FEACF3",
-      "expires": 1770000000,
-      "created_at": 1769000000,
-      "duration_txt": "7d (Restored)"
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-JT699JQN7H4RWTMO": {
+      "hwid": null,
+      "expires": 1741987200,
+      "created_at": 1739395200,
+      "duration_txt": "30d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "enbracex122 (@enbracex122)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-YCYAH0VLPW623JNB": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Rkelley (@Rkelley390)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-ZIGH3X50T4QHKULW": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-AUGNQU7SNGPBC7SL": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "05s (@ZEZUS7779ZZZ777)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-KF8IJ7787S1ARFZA": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "ieatbreadforaliving (@ieatbreadforaliving)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-3F0B8W3M5IGGHVL8": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Youranoob5252 (@youranoob5252)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-7FEITOI3YIW1L6IO": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "meds (@91med)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-3T57HLOMJ0SX9KEZ": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "OY_Zeus (@BloxPatcher)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-S6O5VV7U1ODP4WSM": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "jpinnedui_123 (@asdfasdasdasgwas)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-YLRQQPQMUBZJQDGX": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Meko (@Alecdoom)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-FULNYALUTGHWI33O": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-ZHPEAT32XHC1TKEN": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-HTFF8WT3TAY0ANGZ": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "N/A",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-QIITMSMB9SDDCZMD": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Gubby (@Siempum)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-11MUMKAQ2ZE4GJDP": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "enbracex122 (@enbracex122)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-RA94W3PZ5RU6HDWS": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "Archyx (@FredBear_599)",
+      "last_otp_verify": 0
+    },
+    "ANARCHY-U9IT7Z4A6Z2LH153": {
+      "hwid": null,
+      "expires": 1740000000,
+      "created_at": 1739395200,
+      "duration_txt": "7d",
+      "assigned_id": 0,
+      "last_reset": 0,
+      "last_roblox_name": "urlastgoodbye (@KingSammelot_Vortrox)",
+      "last_otp_verify": 0
     }
-  }
+  },
+  "users": {},
+  "history": [],
+  "blacklisted_hwids": [],
+  "blacklisted_ids": []
 }
