@@ -18,8 +18,8 @@ import random
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1462815057669918821
 
-# [DÜZENLENDİ] Artık birden fazla admin eklenebilir. Virgülle ayırarak istediğin kadar ekle.
-ADMIN_IDS = [1358830140343193821, 1039946239938142218] 
+# [GÜNCELLENDİ] İki admin ID'si de burada
+ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 
 GUILD_ID = 1460981897730592798 
 VERIFIED_ROLE_ID = 1462941857922416661
@@ -105,7 +105,7 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # [DÜZENLENDİ] Adminlerden biri çıkarsa işlem yapma
+    # [GÜNCELLENDİ] Adminlerden biri çıkarsa işlem yapma
     if member.id in ADMIN_IDS: return
 
     deleted = False
@@ -354,7 +354,7 @@ def admin_ban():
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
-    # [DÜZENLENDİ] Listedeki herkes bu komutu kullanabilir
+    # [GÜNCELLENDİ] Listedeki herkes bu komutu kullanabilir
     if interaction.user.id not in ADMIN_IDS: 
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
         return
@@ -377,7 +377,7 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     }
     save_db()
     
-    # [DÜZENLENDİ] ROL İŞLEMLERİ (VERIFIED EKLE / MEMBER SİL)
+    # [GÜNCELLENDİ] ROL İŞLEMLERİ (VERIFIED EKLE / MEMBER SİL)
     try:
         verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
         member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
@@ -403,7 +403,7 @@ async def reset_hwid(interaction: discord.Interaction):
     info = database["keys"][target_key]
     last_r = info.get("last_reset", 0)
     
-    # [DÜZENLENDİ] Adminler bekleme süresinden etkilenmez
+    # [GÜNCELLENDİ] Adminler bekleme süresinden etkilenmez
     if time.time() - last_r < 259200 and interaction.user.id not in ADMIN_IDS:
         remaining = int(259200 - (time.time() - last_r))
         h = remaining // 3600
