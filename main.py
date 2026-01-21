@@ -15,10 +15,12 @@ import io
 import random
 
 # --- CONFIGURATION ---
-TOKEN = os.getenv("DISCORD_TOKEN") 
+TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1462815057669918821
-ADMIN_ID = 1358830140343193821 
-ADMIN_ID = 1039946239938142218
+
+# [DÜZENLENDİ] Artık birden fazla admin eklenebilir. Virgülle ayırarak istediğin kadar ekle.
+ADMIN_IDS = [1358830140343193821, 1039946239938142218] 
+
 GUILD_ID = 1460981897730592798 
 VERIFIED_ROLE_ID = 1462941857922416661
 MEMBER_ROLE_ID = 1461016842582757478
@@ -103,7 +105,9 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    if member.id == ADMIN_ID: return
+    # [DÜZENLENDİ] Adminlerden biri çıkarsa işlem yapma
+    if member.id in ADMIN_IDS: return
+
     deleted = False
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
@@ -111,7 +115,7 @@ async def on_member_remove(member):
                 database["blacklisted_hwids"].append(info["hwid"])
             del database["keys"][key]
             deleted = True
-            break       
+            break        
     if deleted: save_db()
 
 async def log_discord(data, uid, status, d_id):
@@ -350,7 +354,10 @@ def admin_ban():
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
-    if interaction.user.id != ADMIN_ID: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
+    # [DÜZENLENDİ] Listedeki herkes bu komutu kullanabilir
+    if interaction.user.id not in ADMIN_IDS: 
+        await interaction.response.send_message("Unauthorized access.", ephemeral=True)
+        return
     
     for k, v in database["keys"].items():
         if v.get("assigned_id") == user.id:
@@ -370,9 +377,16 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     }
     save_db()
     
+    # [DÜZENLENDİ] ROL İŞLEMLERİ (VERIFIED EKLE / MEMBER SİL)
     try:
-        r = interaction.guild.get_role(VERIFIED_ROLE_ID)
-        if r: await user.add_roles(r)
+        verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
+        member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
+
+        if verified_role: 
+            await user.add_roles(verified_role) # Verified rolünü ver
+        
+        if member_role:
+            await user.remove_roles(member_role) # Member rolünü sil
     except: pass
 
     await interaction.response.send_message(f"License generated for {user.mention}.\nKey: `{key}`\nDuration: {duration}")
@@ -388,7 +402,9 @@ async def reset_hwid(interaction: discord.Interaction):
         
     info = database["keys"][target_key]
     last_r = info.get("last_reset", 0)
-    if time.time() - last_r < 259200 and interaction.user.id != ADMIN_ID:
+    
+    # [DÜZENLENDİ] Adminler bekleme süresinden etkilenmez
+    if time.time() - last_r < 259200 and interaction.user.id not in ADMIN_IDS:
         remaining = int(259200 - (time.time() - last_r))
         h = remaining // 3600
         await interaction.response.send_message(f"Cooldown active. Please wait {h} hours.", ephemeral=True); return
@@ -400,7 +416,7 @@ async def reset_hwid(interaction: discord.Interaction):
 
 @bot.tree.command(name="listhwids", description="List banned HWIDs")
 async def listhwids(interaction: discord.Interaction):
-    if interaction.user.id != ADMIN_ID: return
+    if interaction.user.id not in ADMIN_IDS: return
     hwids = database.get("blacklisted_hwids", [])
     if not hwids: await interaction.response.send_message("No banned HWIDs found.", ephemeral=True); return
     lines = [f"**Banned HWID List ({len(hwids)}):**"]
@@ -413,13 +429,13 @@ async def listhwids(interaction: discord.Interaction):
 
 @bot.tree.command(name="delkey", description="Revoke a license key")
 async def delkey(interaction: discord.Interaction, key: str):
-    if interaction.user.id != ADMIN_ID: return
+    if interaction.user.id not in ADMIN_IDS: return
     if key in database["keys"]: del database["keys"][key]; save_db(); await interaction.response.send_message("License revoked.")
     else: await interaction.response.send_message("Key not found.")
 
 @bot.tree.command(name="ban_roblox_user", description="Ban a Roblox User ID")
 async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
-    if interaction.user.id != ADMIN_ID: return
+    if interaction.user.id not in ADMIN_IDS: return
     if roblox_id not in database["blacklisted_ids"]:
         database["blacklisted_ids"].append(roblox_id)
         save_db()
@@ -428,7 +444,7 @@ async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
 
 @bot.tree.command(name="listkeys", description="List all active licenses")
 async def listkeys(interaction: discord.Interaction):
-    if interaction.user.id != ADMIN_ID: return
+    if interaction.user.id not in ADMIN_IDS: return
     if not database["keys"]: await interaction.response.send_message("No active licenses.", ephemeral=True); return
     lines = []
     g = bot.get_guild(GUILD_ID)
@@ -444,7 +460,7 @@ async def listkeys(interaction: discord.Interaction):
 
 @bot.tree.command(name="unban_hwid", description="Unban a specific HWID")
 async def unban_hwid(interaction: discord.Interaction, hwid: str):
-    if interaction.user.id != ADMIN_ID: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
+    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
     
     if hwid in database.get("blacklisted_hwids", []):
         database["blacklisted_hwids"].remove(hwid)
@@ -455,7 +471,7 @@ async def unban_hwid(interaction: discord.Interaction, hwid: str):
 
 @bot.tree.command(name="unban_roblox_user", description="Unban a Roblox User ID")
 async def unban_roblox_user(interaction: discord.Interaction, roblox_id: str):
-    if interaction.user.id != ADMIN_ID: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
+    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
     
     if roblox_id in database.get("blacklisted_ids", []):
         database["blacklisted_ids"].remove(roblox_id)
@@ -468,4 +484,3 @@ def run_flask(): app.run(host='0.0.0.0', port=8080)
 if __name__ == '__main__':
     t = threading.Thread(target=run_flask); t.start()
     if TOKEN: bot.run(TOKEN)
-
