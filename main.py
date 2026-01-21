@@ -3,6 +3,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from flask import Flask, request, jsonify
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import threading
 import asyncio
 import datetime
@@ -18,7 +20,7 @@ import random
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1462815057669918821
 
-# [GÜNCELLENDİ] İki admin ID'si de burada
+# Admin ID Listesi
 ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 
 GUILD_ID = 1460981897730592798 
@@ -31,6 +33,16 @@ log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
 intents = discord.Intents.default(); intents.message_content = True; intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
+
+# --- RATE LIMITER SETUP (YENİ EKLENDİ) ---
+# Sunucunu spam'den korumak için gerekli ayar.
+# Hafızada tutar (RAM kullanır), veritabanı gerektirmez.
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "60 per hour"], # Varsayılan genel limitler
+    storage_uri="memory://"
+)
 
 # Online User Tracking System
 online_users = {}
@@ -105,12 +117,13 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # [GÜNCELLENDİ] Adminlerden biri çıkarsa işlem yapma
+    # Adminlerden biri çıkarsa işlem yapma
     if member.id in ADMIN_IDS: return
 
     deleted = False
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
+            # Kullanıcı çıkarsa HWID'sini blacklist'e al (Güvenlik önlemi)
             if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
                 database["blacklisted_hwids"].append(info["hwid"])
             del database["keys"][key]
@@ -150,6 +163,7 @@ async def log_discord(data, uid, status, d_id):
 def home(): return "System Operational"
 
 @app.route('/verify', methods=['POST'])
+@limiter.limit("10 per minute") # [RATE LIMIT] Dakikada max 10 deneme
 def verify():
     try:
         data = request.json
@@ -203,6 +217,7 @@ def verify():
     except: return jsonify({"valid": False, "msg": "Internal Server Error"})
 
 @app.route('/check_otp', methods=['POST'])
+@limiter.limit("10 per minute") # [RATE LIMIT] OTP deneme sınırı
 def check_otp():
     try:
         data = request.json
@@ -249,6 +264,7 @@ def update_log():
 
 @app.route('/ban', methods=['POST'])
 def ban():
+    # Bu route roblox scripti içinden ID banlamak için
     d = request.json
     if d.get("target_id") not in database["blacklisted_ids"]:
         database["blacklisted_ids"].append(d.get("target_id")); save_db()
@@ -354,7 +370,6 @@ def admin_ban():
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
-    # [GÜNCELLENDİ] Listedeki herkes bu komutu kullanabilir
     if interaction.user.id not in ADMIN_IDS: 
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
         return
@@ -377,19 +392,76 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     }
     save_db()
     
-    # [GÜNCELLENDİ] ROL İŞLEMLERİ (VERIFIED EKLE / MEMBER SİL)
     try:
         verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
         member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
 
         if verified_role: 
-            await user.add_roles(verified_role) # Verified rolünü ver
+            await user.add_roles(verified_role)
         
         if member_role:
-            await user.remove_roles(member_role) # Member rolünü sil
+            await user.remove_roles(member_role) 
     except: pass
 
     await interaction.response.send_message(f"License generated for {user.mention}.\nKey: `{key}`\nDuration: {duration}")
+
+@bot.tree.command(name="ban", description="Ban a user from Discord, Revoke Key and Ban HWID")
+@app_commands.describe(user="The Discord user to ban", reason="Reason for the ban")
+async def ban_command(interaction: discord.Interaction, user: discord.Member, reason: str = "Violating Rules"):
+    # Yetki Kontrolü
+    if interaction.user.id not in ADMIN_IDS:
+        await interaction.response.send_message("Unauthorized access.", ephemeral=True)
+        return
+
+    # İşlem Raporu
+    actions_taken = []
+    
+    # 1. Veritabanından Key ve HWID Kontrolü
+    deleted_key = False
+    banned_hwid = False
+    target_key = None
+
+    for key, info in list(database["keys"].items()):
+        if info.get("assigned_id") == user.id:
+            target_key = key
+            
+            # HWID varsa banla
+            if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
+                database["blacklisted_hwids"].append(info["hwid"])
+                banned_hwid = True
+                actions_taken.append("HWID Blacklisted")
+            
+            # Key'i sil
+            del database["keys"][key]
+            deleted_key = True
+            actions_taken.append("License Key Revoked")
+            break
+    
+    if deleted_key or banned_hwid:
+        save_db()
+
+    # 2. Discord Sunucusundan Banla
+    try:
+        # Kullanıcıya DM atmayı dene
+        try:
+            await user.send(f"You have been banned from Anarchy.\nReason: {reason}")
+        except: pass
+        
+        await user.ban(reason=reason)
+        actions_taken.append("Banned from Discord Server")
+    except Exception as e:
+        actions_taken.append(f"Failed to ban from Discord: {e}")
+
+    # 3. Sonuç Mesajı
+    if not actions_taken:
+        actions_taken.append("User had no key/HWID, but tried to ban from Discord.")
+    
+    embed = discord.Embed(title="User Termination Protocol", color=0xFF0000)
+    embed.add_field(name="Target", value=f"{user.mention} ({user.id})", inline=False)
+    embed.add_field(name="Actions Taken", value="\n".join([f"• {x}" for x in actions_taken]), inline=False)
+    embed.add_field(name="Reason", value=reason, inline=False)
+    
+    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="reset_hwid", description="Reset HWID binding")
 async def reset_hwid(interaction: discord.Interaction):
@@ -397,13 +469,12 @@ async def reset_hwid(interaction: discord.Interaction):
     for k, v in database["keys"].items():
         if v.get("assigned_id") == interaction.user.id:
             target_key = k
-            break    
+            break     
     if not target_key: await interaction.response.send_message("No active license found.", ephemeral=True); return
         
     info = database["keys"][target_key]
     last_r = info.get("last_reset", 0)
     
-    # [GÜNCELLENDİ] Adminler bekleme süresinden etkilenmez
     if time.time() - last_r < 259200 and interaction.user.id not in ADMIN_IDS:
         remaining = int(259200 - (time.time() - last_r))
         h = remaining // 3600
@@ -455,8 +526,6 @@ async def listkeys(interaction: discord.Interaction):
         lines.append(f"Key: `{k}` | User: {u} | Roblox: {rbx} | Term: {v.get('duration_txt')}")
     f = discord.File(io.StringIO("\n".join(lines)), filename="active_keys.txt")
     await interaction.response.send_message("Active License Database:", file=f)
-
-# --- NEW UNBAN COMMANDS ---
 
 @bot.tree.command(name="unban_hwid", description="Unban a specific HWID")
 async def unban_hwid(interaction: discord.Interaction, hwid: str):
