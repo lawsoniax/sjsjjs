@@ -18,6 +18,7 @@ import random
 TOKEN = os.getenv("DISCORD_TOKEN") 
 CHANNEL_ID = 1462815057669918821
 ADMIN_ID = 1358830140343193821 
+ADMIN_ID = 1039946239938142218
 GUILD_ID = 1460981897730592798 
 VERIFIED_ROLE_ID = 1462941857922416661
 MEMBER_ROLE_ID = 1461016842582757478
@@ -467,3 +468,4 @@ def run_flask(): app.run(host='0.0.0.0', port=8080)
 if __name__ == '__main__':
     t = threading.Thread(target=run_flask); t.start()
     if TOKEN: bot.run(TOKEN)
+
