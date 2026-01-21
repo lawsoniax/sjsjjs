@@ -34,13 +34,12 @@ intents = discord.Intents.default(); intents.message_content = True; intents.mem
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# --- RATE LIMITER SETUP (YENİ EKLENDİ) ---
-# Sunucunu spam'den korumak için gerekli ayar.
-# Hafızada tutar (RAM kullanır), veritabanı gerektirmez.
+# --- RATE LIMITER SETUP ---
+# Varsayılan limitleri biraz gevşettim, ama asıl çözüm aşağıda /network kısmında.
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["200 per day", "60 per hour"], # Varsayılan genel limitler
+    default_limits=["1000 per day", "200 per hour"], 
     storage_uri="memory://"
 )
 
@@ -272,6 +271,7 @@ def ban():
 
 # --- ROBLOX API ROUTES ---
 @app.route('/network', methods=['POST'])
+@limiter.limit("60 per minute") # [[ BURASI DEĞİŞTİ: Dakikada 60 isteğe izin ver ]]
 def network():
     try:
         data = request.json
@@ -469,7 +469,7 @@ async def reset_hwid(interaction: discord.Interaction):
     for k, v in database["keys"].items():
         if v.get("assigned_id") == interaction.user.id:
             target_key = k
-            break     
+            break      
     if not target_key: await interaction.response.send_message("No active license found.", ephemeral=True); return
         
     info = database["keys"][target_key]
