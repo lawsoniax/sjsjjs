@@ -20,7 +20,7 @@ import io
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1460981897730592798 
 DB_FILE = "anarchy_db.json"
-LOGGER_SERVICE_URL = "https://senin-logger-projen.onrender.com/send_log" 
+LOGGER_SERVICE_URL = "https://asdasdj.onrender.com" 
 
 # --- YETKİLİ ID'LER (SADECE BU 2 KİŞİ KOMUT KULLANABİLİR) ---
 ADMIN_IDS = [1358830140343193821, 1039946239938142218]
@@ -222,3 +222,4 @@ if __name__ == '__main__':
     t = threading.Thread(target=run_flask)
     t.start()
     if TOKEN: bot.run(TOKEN)
+
