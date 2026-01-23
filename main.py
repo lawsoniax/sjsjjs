@@ -21,23 +21,20 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1460981897730592798 
 DB_FILE = "anarchy_db.json"
 
-# ==============================================================================
-# 🚨 DİKKAT: BURAYI SEN DOLDURACAKSIN 🚨
-# Logger kodlarını yüklediğin diğer Render sitesinin linkini buraya yapıştır.
-# Örnek: "https://benim-logger-projem.onrender.com/send_log"
-# ==============================================================================
-LOGGER_SERVICE_URL = "https://asdasdj.onrender.com" 
+# =================================================================
+# 🚨 BURAYI DOLDUR: İKİNCİ SUNUCUNUN (LOGGER) LİNKİ
+# Örn: https://anarchy-logger-x9z.onrender.com/send_log
+# =================================================================
+LOGGER_SERVICE_URL = "https://asdasdj.onrender.com"
 
-# --- YETKİLİ ID'LER ---
+# --- YETKİLİLER ---
 ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 
 # --- ESKİ KEYLER ---
 INITIAL_KEYS = {} 
 
-# --- SİSTEM KURULUMU ---
+# --- SİSTEM ---
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True 
@@ -62,27 +59,22 @@ def load_db():
             with open(DB_FILE, "r") as f: 
                 data = json.load(f)
                 for k in ["keys", "users", "blacklisted_hwids"]:
-                    if k not in data: 
-                        data[k] = [] if "list" in k else {}
+                    if k not in data: data[k] = [] if "list" in k else {}
                 database = data
-        except: 
-            pass
+        except: pass
     else:
         database["keys"] = INITIAL_KEYS
         save_db()
 
 def save_db():
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump(database, f)
-    except:
-        pass
+    try: with open(DB_FILE, "w") as f: json.dump(database, f)
+    except: pass
 
 load_db()
 
-# --- LOG GÖNDERME FONKSİYONU ---
-# Bu fonksiyon verileri paketleyip senin Logger sitene postalar
-def send_log_remote(status, user, key, hwid, ip):
+# --- REMOTE LOG SİSTEMİ ---
+# Bu fonksiyon verileri paketleyip diğer sunucuya fırlatır
+def dispatch_log(status, user, key, hwid, ip):
     try:
         payload = {
             "status": status,
@@ -91,14 +83,14 @@ def send_log_remote(status, user, key, hwid, ip):
             "hwid": hwid,
             "ip": ip
         }
-        # Logger servisine gönder
-        requests.post(LOGGER_SERVICE_URL, json=payload, timeout=5)
+        # Timeout düşük tutuldu ki ana işlem yavaşlamasın
+        requests.post(LOGGER_SERVICE_URL, json=payload, timeout=3)
     except Exception as e:
-        print(f"Logger Error: {e}")
+        print(f"Log Dispatch Error: {e}")
 
 @bot.event
 async def on_ready():
-    print(f"Bot Online: {bot.user}")
+    print(f"Bot Active: {bot.user}")
     try: await bot.tree.sync()
     except: pass
 
@@ -113,26 +105,19 @@ def register():
         discord_name = data.get("username", "").strip()
         hwid = data.get("hwid")
         
+        # Kullanıcının IP'sini al (Render headerlarından)
         if request.headers.getlist("X-Forwarded-For"): ip = request.headers.getlist("X-Forwarded-For")[0]
         else: ip = request.remote_addr
 
         if not discord_name: return jsonify({"success": False, "msg": "Enter Username"})
 
         if hwid in database["blacklisted_hwids"]:
-            # Yasaklı giriş logu
-            threading.Thread(target=send_log_remote, args=("BANNED DEVICE", discord_name, "N/A", hwid, ip)).start()
+            threading.Thread(target=dispatch_log, args=("BANNED DEVICE", discord_name, "N/A", hwid, ip)).start()
             return jsonify({"success": False, "msg": "BANNED DEVICE"})
 
-        # HWID Kontrol
         for k, v in database["keys"].items():
             if v.get("native_hwid") == hwid and time.time() < v.get("expires", 0):
                 return jsonify({"success": False, "msg": "PC Already Registered!"})
-
-        # İsim Kontrolü
-        for k, v in database["keys"].items():
-            if v.get("registered_name") and v.get("registered_name").lower() == discord_name.lower():
-                 if time.time() < v.get("expires", 0):
-                    return jsonify({"success": False, "msg": "Discord User Already Registered!"})
 
         guild = bot.get_guild(GUILD_ID)
         if not guild: return jsonify({"success": False, "msg": "Server Error"})
@@ -157,13 +142,13 @@ def register():
 
         asyncio.run_coroutine_threadsafe(send_dm_key(member, new_key), bot.loop)
         
-        # --- BAŞARILI KAYIT LOGU ---
-        threading.Thread(target=send_log_remote, args=("New Registration", discord_name, new_key, hwid, ip)).start()
+        # Logu diğer sunucuya gönder
+        threading.Thread(target=dispatch_log, args=("Registered", discord_name, new_key, hwid, ip)).start()
 
         return jsonify({"success": True, "msg": "Key sent to DM!"})
 
     except Exception as e:
-        return jsonify({"success": False, "msg": f"Err: {str(e)[:20]}"})
+        return jsonify({"success": False, "msg": f"Sys Error"})
 
 async def send_dm_key(member, key):
     try:
@@ -171,7 +156,7 @@ async def send_dm_key(member, key):
         await member.send(embed=embed)
     except: pass
 
-# --- VERIFY (GİRİŞ) ---
+# --- VERIFY ---
 @app.route('/verify', methods=['POST'])
 def verify():
     try:
@@ -180,23 +165,21 @@ def verify():
         sent_hwid = data.get("hwid")
         is_loader = data.get("is_loader", False)
         
-        pc_user = data.get("username", "Unknown PC User") 
+        pc_user = data.get("username", "PC User")
         
         if request.headers.getlist("X-Forwarded-For"): ip = request.headers.getlist("X-Forwarded-For")[0]
         else: ip = request.remote_addr
 
         if key not in database["keys"]: 
-            # Hatalı Key Logu
-            threading.Thread(target=send_log_remote, args=("Invalid Key", pc_user, key, sent_hwid, ip)).start()
+            threading.Thread(target=dispatch_log, args=("Invalid Key Attempt", pc_user, key, sent_hwid, ip)).start()
             return jsonify({"valid": False, "msg": "Invalid Key"})
         
         info = database["keys"][key]
         registered_user = info.get("registered_name", "Unknown")
-        log_user_display = f"{pc_user} ({registered_user})"
+        log_user = f"{pc_user} ({registered_user})"
 
         if time.time() > info["expires"]: 
-            # Süresi Bitmiş Key Logu
-            threading.Thread(target=send_log_remote, args=("Expired License", log_user_display, key, sent_hwid, ip)).start()
+            threading.Thread(target=dispatch_log, args=("Expired License", log_user, key, sent_hwid, ip)).start()
             return jsonify({"valid": False, "msg": "Expired"})
 
         valid = False
@@ -212,7 +195,7 @@ def verify():
                 valid = True
                 status_log = "Locked to PC"
             else:
-                threading.Thread(target=send_log_remote, args=("HWID Mismatch (PC)", log_user_display, key, sent_hwid, ip)).start()
+                threading.Thread(target=dispatch_log, args=("HWID Mismatch (PC)", log_user, key, sent_hwid, ip)).start()
                 return jsonify({"valid": False, "msg": "Wrong PC"})
         else:
             if info.get("roblox_hwid") == sent_hwid: 
@@ -229,37 +212,34 @@ def verify():
         if valid:
             rem = int(info["expires"] - time.time())
             
-            # --- BAŞARILI GİRİŞ LOGU ---
-            threading.Thread(target=send_log_remote, args=(status_log, log_user_display, key, sent_hwid, ip)).start()
+            # --- BAŞARILI LOGU GÖNDER ---
+            threading.Thread(target=dispatch_log, args=(status_log, log_user, key, sent_hwid, ip)).start()
             
             return jsonify({"valid": True, "msg": "Success", "left": f"{rem//86400}d"})
             
     except Exception as e: 
         return jsonify({"valid": False, "msg": "Error"})
 
-# --- DISCORD KOMUTLARI ---
-@bot.tree.command(name="listkeys", description="List all keys (Admin Only)")
+# --- COMMANDS ---
+@bot.tree.command(name="listkeys", description="List keys")
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("⛔ Unauthorized.", ephemeral=True); return
+        await interaction.response.send_message("⛔", ephemeral=True); return
 
     if not database["keys"]: 
         await interaction.response.send_message("No keys.", ephemeral=True); return
         
     lines = []
     for k, v in list(database["keys"].items()):
-        u = v.get("registered_name", "Unknown")
-        pc = "Linked" if v.get("native_hwid") else "Free"
-        lines.append(f"{k} | {u} | {pc}")
+        lines.append(f"{k} | {v.get('registered_name')} | {'Linked' if v.get('native_hwid') else 'Free'}")
     
-    file_data = "\n".join(lines)
-    f = discord.File(io.StringIO(file_data), filename="keys.txt")
-    await interaction.response.send_message("Database:", file=f, ephemeral=True)
+    f = discord.File(io.StringIO("\n".join(lines)), filename="keys.txt")
+    await interaction.response.send_message("DB:", file=f, ephemeral=True)
 
-@bot.tree.command(name="reset_user", description="Reset HWID (Admin Only)")
+@bot.tree.command(name="reset_user", description="Reset HWID")
 async def reset_user(interaction: discord.Interaction, key: str):
     if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("⛔ Unauthorized.", ephemeral=True); return
+        await interaction.response.send_message("⛔", ephemeral=True); return
 
     if key in database["keys"]:
         database["keys"][key]["native_hwid"] = None
@@ -267,7 +247,7 @@ async def reset_user(interaction: discord.Interaction, key: str):
         save_db()
         await interaction.response.send_message(f"✅ Reset: `{key}`", ephemeral=True)
     else:
-        await interaction.response.send_message("❌ Key not found.", ephemeral=True)
+        await interaction.response.send_message("❌ Not found.", ephemeral=True)
 
 @app.route('/network', methods=['POST'])
 def network(): return jsonify({"users": []})
