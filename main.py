@@ -30,8 +30,7 @@ ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 INITIAL_KEYS = {} 
 pending_logins = {}
 
-# --- SISTEM ---
-logging.basicConfig(level=logging.INFO) # Logları görelim
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
@@ -43,10 +42,9 @@ intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# Flask limitini geniş tutuyoruz, kendi mantığımızı kullanacağız
+# Sunucu taraflı limit (DDoS koruması için)
 limiter = Limiter(get_remote_address, app=app, default_limits=["50000 per day"], storage_uri="memory://")
 
-# TEK VERİTABANI (Security + Keys)
 database = {"keys": {}, "users": {}, "blacklisted_hwids": [], "security": {}}
 
 def load_db():
@@ -55,29 +53,25 @@ def load_db():
         try:
             with open(DB_FILE, "r") as f: 
                 data = json.load(f)
-                # Eksik anahtarları tamamla
                 for k in ["keys", "users", "blacklisted_hwids", "security"]:
-                    if k not in data: 
-                        data[k] = {} if k != "blacklisted_hwids" else []
+                    if k not in data: data[k] = {} if k != "blacklisted_hwids" else []
                 database = data
         except: pass
     else:
-        database["keys"] = INITIAL_KEYS
-        save_db()
+        database["keys"] = INITIAL_KEYS; save_db()
 
 def save_db():
-    try:
-        with open(DB_FILE, "w") as f: json.dump(database, f)
+    try: with open(DB_FILE, "w") as f: json.dump(database, f)
     except: pass
 
 load_db()
 
 # ==========================================
-#        GÜVENLİK SİSTEMİ (ÇEKİRDEK)
+#        AKILLI GÜVENLİK SİSTEMİ
 # ==========================================
 
 def calculate_penalty(streak):
-    # 1. Hata: Uyarı (Ceza Yok)
+    # 1. Hata: Ceza YOK (Sadece Uyarı)
     if streak <= 1: return 0        
     # 2. Hata: 60 Saniye (Direkt Ceza)
     if streak == 2: return 60       
@@ -96,15 +90,16 @@ def check_security(hwid):
     
     sec = database["security"][hwid]
     
-    # Eğer ceza süresi bitmemişse
+    # Ceza süresi dolmamışsa REDDET
     if current_time < sec.get("ban_until", 0):
         remaining = int(sec["ban_until"] - current_time)
+        # Mesaj formatı C++ ile uyumlu olmalı: "Wait Xs"
         return False, f"SECURITY LOCK: Wait {remaining}s"
     
     return True, "OK"
 
 def add_strike(hwid):
-    """Kullanıcıya ceza puanı ekler ve gerekirse banlar."""
+    """Hata yapıldığında ceza puanı ekler."""
     current_time = time.time()
     
     if hwid not in database["security"]:
@@ -117,22 +112,27 @@ def add_strike(hwid):
     penalty = calculate_penalty(streak)
     
     msg = ""
+    is_banned = False
+    
     if penalty > 0:
         sec["ban_until"] = current_time + penalty
         msg = f"SECURITY LOCK: Wait {penalty}s"
+        is_banned = True
+        print(f"[SECURITY] BANNED HWID: {hwid} for {penalty}s (Strike: {streak})")
     else:
-        msg = "Warning: Do not spam!" # UI'da göstermeyebiliriz ama loga düşer
+        msg = "Warning: Invalid Action!" # İlk hata mesajı
+        is_banned = False
+        print(f"[SECURITY] WARNING HWID: {hwid} (Strike: {streak})")
         
     save_db()
-    print(f"[SECURITY] HWID: {hwid} | Strike: {streak} | Penalty: {penalty}s")
-    
-    return penalty > 0, msg # (Cezalı mı?, Mesaj)
+    return is_banned, msg
 
 def clear_strike(hwid):
-    """Başarılı işlemde sicili temizler."""
+    """Başarılı işlemde sicili TEMİZLE."""
     if hwid in database["security"]:
         database["security"][hwid] = {"fails": 0, "ban_until": 0}
         save_db()
+        print(f"[SECURITY] CLEARED HWID: {hwid}")
 
 # --- DISCORD LOG ---
 def send_discord_log(title, discord_user, pc_user, key, hwid, ip, status, color=3066993):
@@ -143,10 +143,9 @@ def send_discord_log(title, discord_user, pc_user, key, hwid, ip, status, color=
                 {"name": "User", "value": f"{discord_user}", "inline": True},
                 {"name": "PC", "value": f"{pc_user}", "inline": True},
                 {"name": "HWID", "value": f"`{hwid}`", "inline": False},
-                {"name": "Status", "value": f"**{status}**", "inline": True},
-                {"name": "Key", "value": f"`{key}`", "inline": False}
+                {"name": "Status", "value": f"**{status}**", "inline": True}
             ],
-            "footer": {"text": "Anarchy Auth System"}
+            "footer": {"text": "Anarchy Auth"}
         }
         requests.post(LOG_WEBHOOK, json={"username": "Anarchy Logger", "embeds": [embed]})
     except: pass
@@ -162,7 +161,7 @@ async def on_ready():
     except: pass
 
 # ==========================================
-#        ENDPOINTS (LUA & C++)
+#        ENDPOINTS
 # ==========================================
 
 @app.route('/register', methods=['POST'])
@@ -174,24 +173,21 @@ def register():
         pc_user = data.get("pc_user", "Unknown")
         ip = get_real_ip()
 
-        # 1. GÜVENLİK KONTROLÜ (Girişte)
+        # 1. GÜVENLİK KONTROLÜ
         is_safe, sec_msg = check_security(hwid)
-        if not is_safe:
-            return jsonify({"success": False, "msg": sec_msg})
+        if not is_safe: return jsonify({"success": False, "msg": sec_msg})
 
-        # 2. BAN KONTROLÜ
-        if hwid in database["blacklisted_hwids"]:
-            return jsonify({"success": False, "msg": "BANNED DEVICE"})
+        if hwid in database["blacklisted_hwids"]: return jsonify({"success": False, "msg": "BANNED DEVICE"})
 
         guild = bot.get_guild(GUILD_ID)
         member = guild.get_member_named(discord_name) if guild else None
         
         if not member:
-            is_banned, ban_msg = add_strike(hwid) # HATA -> CEZA EKLE
+            is_banned, ban_msg = add_strike(hwid) # Hata -> Strike
             if is_banned: return jsonify({"success": False, "msg": ban_msg})
             return jsonify({"success": False, "msg": "User Not Found"})
 
-        # 3. ZATEN KEY VAR MI?
+        # --- ZATEN KAYITLI MI? ---
         existing_key = None
         for k, v in database["keys"].items():
             if v.get("assigned_id") == member.id and time.time() < v.get("expires", 0):
@@ -199,16 +195,14 @@ def register():
                 break
         
         if existing_key:
-            # KRİTİK NOKTA: Zaten kayıtlıysa da CEZA EKLE!
+            # Zaten kayıtlıysa da STRIKE ekliyoruz (Spamı engellemek için)
             is_banned, ban_msg = add_strike(hwid)
-            
-            # Eğer bu tıklamada ceza sınırını geçtiyse, "Already Registered" yerine direkt BAN mesajını göster
             if is_banned:
                 return jsonify({"success": False, "msg": ban_msg})
             else:
                 return jsonify({"success": False, "msg": "Already Registered!"})
 
-        # 4. YENİ KAYIT
+        # --- YENİ KAYIT ---
         raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
         new_key = f"ANARCHY-{raw}"
         
@@ -219,15 +213,13 @@ def register():
         }
         save_db()
         
-        clear_strike(hwid) # Başarılı -> Sicili temizle
+        clear_strike(hwid) # BAŞARILI -> SİCİLİ TEMİZLE
         asyncio.run_coroutine_threadsafe(member.send(f"Anarchy License: `{new_key}`"), bot.loop)
         
         send_discord_log("New Register", discord_name, pc_user, new_key, hwid, ip, "Success")
         return jsonify({"success": True, "msg": "Sent to DM"})
 
-    except Exception as e:
-        print(e)
-        return jsonify({"success": False, "msg": "Server Error"})
+    except: return jsonify({"success": False, "msg": "Server Error"})
 
 @app.route('/verify', methods=['POST'])
 def verify():
@@ -243,8 +235,9 @@ def verify():
         is_safe, sec_msg = check_security(hwid)
         if not is_safe: return jsonify({"valid": False, "msg": sec_msg})
 
+        # Yanlış Key
         if key not in database["keys"]:
-            is_banned, ban_msg = add_strike(hwid)
+            is_banned, ban_msg = add_strike(hwid) # Hata -> Strike
             if is_banned: return jsonify({"valid": False, "msg": ban_msg})
             
             send_discord_log("Failed Login", "Unknown", pc_user, key, hwid, ip, "Invalid Key", 15158332)
@@ -253,8 +246,9 @@ def verify():
         info = database["keys"][key]
         if time.time() > info["expires"]: return jsonify({"valid": False, "msg": "Expired"})
 
+        # Yanlış HWID
         if info.get("native_hwid") and info.get("native_hwid") != hwid:
-            is_banned, ban_msg = add_strike(hwid)
+            is_banned, ban_msg = add_strike(hwid) # Hata -> Strike
             if is_banned: return jsonify({"valid": False, "msg": ban_msg})
             return jsonify({"valid": False, "msg": "Wrong HWID"})
         
@@ -263,13 +257,13 @@ def verify():
 
         if roblox: info["roblox_nick"] = roblox; save_db()
 
-        clear_strike(hwid) # Başarılı -> Temizle
+        clear_strike(hwid) # BAŞARILI -> SİCİLİ TEMİZLE
         send_discord_log("Login Success", info.get("registered_name"), pc_user, key, hwid, ip, "Authorized")
         return jsonify({"valid": True, "msg": "Success"})
 
     except: return jsonify({"valid": False, "msg": "Error"})
 
-# --- LUA ÖZEL ---
+# --- LUA DESTEĞİ ---
 @app.route('/update_roblox', methods=['POST'])
 def update_roblox():
     try:
@@ -298,13 +292,7 @@ def get_users():
 # --- DISCORD ---
 @app.route('/callback')
 def discord_callback(): 
-    # Otomatik Kapatma Sayfası
-    return """
-    <script>setTimeout(function(){window.close()},1000);</script>
-    <body style="background:#111;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;">
-    <h1>Login Successful. You can close this.</h1>
-    </body>
-    """
+    return "<script>setTimeout(function(){window.close()},1000);</script><body style='background:#111;color:#fff;'><h1>Login Successful.</h1></body>"
 
 @bot.tree.command(name="listkeys")
 async def listkeys(interaction: discord.Interaction):
@@ -323,15 +311,14 @@ async def reset_hwid(interaction: discord.Interaction, key: str):
         await interaction.response.send_message(f"Reset: {key}", ephemeral=True)
     else: await interaction.response.send_message("Not found", ephemeral=True)
 
-# --- CEZA SIFIRLAMA KOMUTU (ADMİNLER İÇİN) ---
 @bot.tree.command(name="unban_hwid")
 async def unban_hwid(interaction: discord.Interaction, hwid: str):
     if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("No permission", ephemeral=True); return
     if hwid in database["security"]:
         database["security"][hwid] = {"fails": 0, "ban_until": 0}
         save_db()
-        await interaction.response.send_message(f"Unbanned HWID: {hwid}", ephemeral=True)
-    else: await interaction.response.send_message("HWID not found in security DB", ephemeral=True)
+        await interaction.response.send_message(f"Unbanned: {hwid}", ephemeral=True)
+    else: await interaction.response.send_message("HWID not found", ephemeral=True)
 
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
