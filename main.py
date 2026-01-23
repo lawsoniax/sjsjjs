@@ -2,7 +2,7 @@ import os
 import discord
 from discord import app_commands
 from discord.ext import commands
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import threading
@@ -21,17 +21,21 @@ import datetime
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1460981897730592798 
 DB_FILE = "anarchy_db.json"
-
-# Webhook Adresi
 LOG_WEBHOOK = "https://discord.com/api/webhooks/1464013246414717192/mXK-_-Yft9JqDS-pqUWSbOa1Uv5wzHtmN0jOC5__aU4_cewwXikQZ1ofDVmc141cpkaj"
 
-# Yetkili Yönetici ID Listesi
-ADMIN_IDS = [1358830140343193821, 1039946239938142218]
+# --- DISCORD OAUTH AYARLARI (DOLDURUNUZ) ---
+CLIENT_ID = "1464002253244600511" 
+CLIENT_SECRET = "6djxraALuFvcg6ZLT_aDpHs94Y4PcUzj"
+# Örn: https://sjsjjs.onrender.com/callback
+REDIRECT_URI = "https://sjsjjs.onrender.com/callback"
 
-# Eski Lisans Anahtarlari
+ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 INITIAL_KEYS = {} 
 
-# --- SISTEM BASLATMA ---
+# Bekleyen Giris Istekleri
+pending_logins = {}
+
+# --- SISTEM ---
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -78,31 +82,83 @@ def save_db():
 
 load_db()
 
-# --- LOGLAMA SISTEMI ---
+# --- DISCORD OAUTH CALLBACK ---
+@app.route('/callback')
+def discord_callback():
+    code = request.args.get('code')
+    state = request.args.get('state')
+    
+    if not code or not state: return "Error: Missing Parameters"
+
+    data = {
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI
+    }
+    headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+    
+    try:
+        r = requests.post('https://discord.com/api/oauth2/token', data=data, headers=headers)
+        r.raise_for_status()
+        access_token = r.json().get('access_token')
+        
+        user_req = requests.get('https://discord.com/api/users/@me', headers={'Authorization': f'Bearer {access_token}'})
+        user_req.raise_for_status()
+        user_data = user_req.json()
+        
+        discord_id = int(user_data['id'])
+        username = user_data['username']
+
+        # Lisans Kontrolu
+        found_key = None
+        for k, v in database["keys"].items():
+            if v.get("assigned_id") == discord_id:
+                if time.time() < v.get("expires", 0):
+                    found_key = k
+                    break
+        
+        if found_key:
+            pending_logins[state] = {"status": "Success", "key": found_key, "user": username}
+            return f"<body style='background:#09090b;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;'><h1>Login Successful</h1><p>Welcome, {username}. You can close this window.</p></body>"
+        else:
+            pending_logins[state] = {"status": "Failed", "msg": "No Active License"}
+            return f"<body style='background:#09090b;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;'><h1>Access Denied</h1><p>No active license found for {username}. Please register first.</p></body>"
+
+    except Exception as e:
+        return f"Auth Error: {str(e)}"
+
+# --- C++ POLLING ---
+@app.route('/auth/poll', methods=['POST'])
+def poll_auth():
+    data = request.json
+    state = data.get("state")
+    if state in pending_logins:
+        result = pending_logins.pop(state)
+        return jsonify(result)
+    return jsonify({"status": "Waiting"})
+
+# --- LOG ---
 def send_discord_log(title, discord_user, pc_user, key, hwid, ip, mac, ram, status, color=3066993):
     try:
         embed = {
-            "title": title,
-            "color": color,
+            "title": title, "color": color,
             "fields": [
                 {"name": "Windows User", "value": f"`{pc_user}`", "inline": True},
                 {"name": "Discord User", "value": f"`{discord_user}`", "inline": True},
-                {"name": "License Key", "value": f"`{key}`", "inline": False},
+                {"name": "Key", "value": f"`{key}`", "inline": False},
                 {"name": "HWID", "value": f"`{hwid}`", "inline": False},
-                {"name": "MAC Address", "value": f"`{mac}`", "inline": True},
+                {"name": "MAC", "value": f"`{mac}`", "inline": True},
                 {"name": "RAM", "value": f"`{ram}`", "inline": True},
-                {"name": "IP Address", "value": f"`{ip}`", "inline": False},
-                {"name": "Status", "value": f"**{status}**", "inline": True},
-                {"name": "Time", "value": f"<t:{int(time.time())}:R>", "inline": True}
+                {"name": "IP", "value": f"`{ip}`", "inline": False},
+                {"name": "Status", "value": f"**{status}**", "inline": True}
             ],
             "footer": {"text": "Anarchy Security System"}
         }
-        
         requests.post(LOG_WEBHOOK, json={"username": "Anarchy Logger", "embeds": [embed]})
-    except Exception as e:
-        print(f"Log Error: {e}")
+    except: pass
 
-# --- IP COZUMLEME ---
 def get_real_ip():
     if request.headers.getlist("X-Forwarded-For"):
         return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
@@ -111,168 +167,93 @@ def get_real_ip():
 @bot.event
 async def on_ready():
     print(f"Bot Online: {bot.user}")
-    try: 
-        await bot.tree.sync()
-    except: 
-        pass
+    try: await bot.tree.sync()
+    except: pass
 
-# --- KAYIT ISLEMI (REGISTER) ---
 @app.route('/register', methods=['POST'])
 @limiter.limit("10 per minute")
 def register():
     try:
         if not bot.is_ready(): return jsonify({"success": False, "msg": "System Loading..."})
-
         data = request.json
         discord_name = data.get("username", "").strip()
         hwid = data.get("hwid")
-        
-        # Donanim Bilgileri
         pc_user = data.get("pc_user", "Unknown")
         mac = data.get("mac", "N/A")
         ram = data.get("ram", "N/A")
-        
         ip = get_real_ip()
 
-        if not discord_name: return jsonify({"success": False, "msg": "Enter Username"})
-
+        if not discord_name: return jsonify({"success": False, "msg": "Invalid Name"})
         if hwid in database["blacklisted_hwids"]:
-            send_discord_log("Register Blocked", discord_name, pc_user, "N/A", hwid, ip, mac, ram, "BANNED DEVICE", 15158332)
-            return jsonify({"success": False, "msg": "BANNED DEVICE"})
-
-        for k, v in database["keys"].items():
-            if v.get("native_hwid") == hwid and time.time() < v.get("expires", 0):
-                return jsonify({"success": False, "msg": "PC Already Registered"})
+            send_discord_log("Blocked", discord_name, pc_user, "N/A", hwid, ip, mac, ram, "BANNED", 15158332)
+            return jsonify({"success": False, "msg": "BANNED"})
 
         guild = bot.get_guild(GUILD_ID)
         if not guild: return jsonify({"success": False, "msg": "Server Error"})
-        
         member = guild.get_member_named(discord_name)
-        if not member:
-            return jsonify({"success": False, "msg": "User Not Found in Discord"})
+        if not member: return jsonify({"success": False, "msg": "User Not Found"})
 
         raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
         new_key = f"ANARCHY-{raw}"
         
         database["keys"][new_key] = {
-            "native_hwid": hwid,
-            "roblox_hwid": None,
-            "expires": time.time() + (7 * 86400),
-            "created_at": time.time(),
-            "duration_txt": "7d Trial",
-            "assigned_id": member.id,
-            "registered_name": discord_name,
-            "pc_user": pc_user
+            "native_hwid": hwid, "roblox_hwid": None, "expires": time.time() + (7 * 86400),
+            "created_at": time.time(), "duration_txt": "7d Trial", "assigned_id": member.id,
+            "registered_name": discord_name, "pc_user": pc_user
         }
         save_db()
-
         asyncio.run_coroutine_threadsafe(send_dm_key(member, new_key), bot.loop)
-        
-        threading.Thread(target=send_discord_log, args=("New Registration", discord_name, pc_user, new_key, hwid, ip, mac, ram, "Key Sent to DM")).start()
-
-        return jsonify({"success": True, "msg": "Key sent to DM"})
-
-    except Exception as e:
-        return jsonify({"success": False, "msg": "System Error"})
+        threading.Thread(target=send_discord_log, args=("New Register", discord_name, pc_user, new_key, hwid, ip, mac, ram, "Success")).start()
+        return jsonify({"success": True, "msg": "Sent to DM"})
+    except: return jsonify({"success": False, "msg": "Error"})
 
 async def send_dm_key(member, key):
-    try:
-        embed = discord.Embed(title="Anarchy License", description=f"Key: ```{key}```", color=0x00FF00)
-        await member.send(embed=embed)
+    try: await member.send(f"Anarchy Key: `{key}`")
     except: pass
 
-# --- DOGRULAMA ISLEMI (VERIFY) ---
 @app.route('/verify', methods=['POST'])
 def verify():
     try:
         data = request.json
         key = data.get("key")
         sent_hwid = data.get("hwid")
-        is_loader = data.get("is_loader", False)
-        
-        pc_user = data.get("pc_user", "Unknown PC") 
+        pc_user = data.get("pc_user", "Unknown")
         mac = data.get("mac", "N/A")
         ram = data.get("ram", "N/A")
-        
         ip = get_real_ip()
 
         if key not in database["keys"]: 
-            threading.Thread(target=send_discord_log, args=("Login Failed", "Unknown", pc_user, key, sent_hwid, ip, mac, ram, "Invalid Key", 15158332)).start()
+            threading.Thread(target=send_discord_log, args=("Failed Login", "Unknown", pc_user, key, sent_hwid, ip, mac, ram, "Invalid Key", 15158332)).start()
             return jsonify({"valid": False, "msg": "Invalid Key"})
         
         info = database["keys"][key]
-        discord_user = info.get("registered_name", "Unknown")
-
-        if time.time() > info["expires"]: 
-            threading.Thread(target=send_discord_log, args=("Login Failed", discord_user, pc_user, key, sent_hwid, ip, mac, ram, "Expired License", 15158332)).start()
-            return jsonify({"valid": False, "msg": "Expired"})
+        if time.time() > info["expires"]: return jsonify({"valid": False, "msg": "Expired"})
 
         valid = False
-        status_msg = "Success"
-
-        if is_loader:
-            if info.get("native_hwid") == sent_hwid: 
-                valid = True
-                status_msg = "Login Success (PC)"
-            elif info.get("native_hwid") is None: 
-                info["native_hwid"] = sent_hwid
-                save_db()
-                valid = True
-                status_msg = "Locked to PC"
-            else:
-                threading.Thread(target=send_discord_log, args=("Security Alert", discord_user, pc_user, key, sent_hwid, ip, mac, ram, "HWID Mismatch", 10038562)).start()
-                return jsonify({"valid": False, "msg": "Wrong PC"})
-        else:
-            if info.get("roblox_hwid") == sent_hwid: 
-                valid = True
-                status_msg = "Login Success (Roblox)"
-            elif info.get("roblox_hwid") is None: 
-                info["roblox_hwid"] = sent_hwid
-                save_db()
-                valid = True
-                status_msg = "Locked to Roblox"
-            else:
-                return jsonify({"valid": False, "msg": "Wrong Roblox Account"})
+        if info.get("native_hwid") == sent_hwid: valid = True
+        elif info.get("native_hwid") is None: 
+            info["native_hwid"] = sent_hwid; save_db(); valid = True
+        else: return jsonify({"valid": False, "msg": "Wrong PC"})
         
         if valid:
-            rem = int(info["expires"] - time.time())
-            threading.Thread(target=send_discord_log, args=("Login Approved", discord_user, pc_user, key, sent_hwid, ip, mac, ram, status_msg)).start()
-            return jsonify({"valid": True, "msg": "Success", "left": f"{rem//86400}d"})
-            
-    except Exception as e: 
-        return jsonify({"valid": False, "msg": "Error"})
+            threading.Thread(target=send_discord_log, args=("Login Success", info.get("registered_name"), pc_user, key, sent_hwid, ip, mac, ram, "Authorized")).start()
+            return jsonify({"valid": True, "msg": "Success"})
+    except: return jsonify({"valid": False, "msg": "Error"})
 
-# --- DISCORD KOMUTLARI ---
-@bot.tree.command(name="listkeys", description="Admin: List all keys")
+@bot.tree.command(name="listkeys")
 async def listkeys(interaction: discord.Interaction):
-    if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("Unauthorized.", ephemeral=True); return
+    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("No permission", ephemeral=True); return
+    lines = [f"{k} | {v.get('registered_name')}" for k, v in database["keys"].items()]
+    f = discord.File(io.StringIO("\n".join(lines)), filename="keys.txt")
+    await interaction.response.send_message("DB:", file=f, ephemeral=True)
 
-    if not database["keys"]: 
-        await interaction.response.send_message("Database empty.", ephemeral=True); return
-        
-    lines = []
-    for k, v in list(database["keys"].items()):
-        u = v.get("registered_name", "Unknown")
-        pc = v.get("pc_user", "N/A")
-        lines.append(f"{k} | Discord: {u} | PC: {pc}")
-    
-    file_data = "\n".join(lines)
-    f = discord.File(io.StringIO(file_data), filename="keys.txt")
-    await interaction.response.send_message("Database Export:", file=f, ephemeral=True)
-
-@bot.tree.command(name="reset_user", description="Admin: Reset HWID")
+@bot.tree.command(name="reset_user")
 async def reset_user(interaction: discord.Interaction, key: str):
-    if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("Unauthorized.", ephemeral=True); return
-
+    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("No permission", ephemeral=True); return
     if key in database["keys"]:
-        database["keys"][key]["native_hwid"] = None
-        database["keys"][key]["roblox_hwid"] = None
-        save_db()
-        await interaction.response.send_message(f"Reset Complete: `{key}`", ephemeral=True)
-    else:
-        await interaction.response.send_message("Key not found.", ephemeral=True)
+        database["keys"][key]["native_hwid"] = None; save_db()
+        await interaction.response.send_message(f"Reset: {key}", ephemeral=True)
+    else: await interaction.response.send_message("Not found", ephemeral=True)
 
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
