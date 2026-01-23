@@ -21,9 +21,11 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1460981897730592798 
 DB_FILE = "anarchy_db.json"
 
-# --- LOGGER BAĞLANTISI ---
-# Buraya diğer Render hesabındaki Logger uygulamasının adresini yaz.
-# Sonunda /send_log olması ŞART.
+# ==============================================================================
+# 🚨 DİKKAT: BURAYI SEN DOLDURACAKSIN 🚨
+# Logger kodlarını yüklediğin diğer Render sitesinin linkini buraya yapıştır.
+# Örnek: "https://benim-logger-projem.onrender.com/send_log"
+# ==============================================================================
 LOGGER_SERVICE_URL = "https://asdasdj.onrender.com" 
 
 # --- YETKİLİ ID'LER ---
@@ -60,21 +62,26 @@ def load_db():
             with open(DB_FILE, "r") as f: 
                 data = json.load(f)
                 for k in ["keys", "users", "blacklisted_hwids"]:
-                    if k not in data: data[k] = [] if "list" in k else {}
+                    if k not in data: 
+                        data[k] = [] if "list" in k else {}
                 database = data
-        except: pass
+        except: 
+            pass
     else:
         database["keys"] = INITIAL_KEYS
         save_db()
 
 def save_db():
-    try: with open(DB_FILE, "w") as f: json.dump(database, f)
-    except: pass
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(database, f)
+    except:
+        pass
 
 load_db()
 
-# --- UZAK LOGGER FONKSİYONU ---
-# Bu fonksiyon veriyi senin logger.py dosyana gönderir
+# --- LOG GÖNDERME FONKSİYONU ---
+# Bu fonksiyon verileri paketleyip senin Logger sitene postalar
 def send_log_remote(status, user, key, hwid, ip):
     try:
         payload = {
@@ -84,7 +91,7 @@ def send_log_remote(status, user, key, hwid, ip):
             "hwid": hwid,
             "ip": ip
         }
-        # Arka planda isteği at, cevabı bekleme (Hız kaybetmemek için)
+        # Logger servisine gönder
         requests.post(LOGGER_SERVICE_URL, json=payload, timeout=5)
     except Exception as e:
         print(f"Logger Error: {e}")
@@ -112,7 +119,7 @@ def register():
         if not discord_name: return jsonify({"success": False, "msg": "Enter Username"})
 
         if hwid in database["blacklisted_hwids"]:
-            # Yasaklı giriş logu gönder
+            # Yasaklı giriş logu
             threading.Thread(target=send_log_remote, args=("BANNED DEVICE", discord_name, "N/A", hwid, ip)).start()
             return jsonify({"success": False, "msg": "BANNED DEVICE"})
 
@@ -120,6 +127,12 @@ def register():
         for k, v in database["keys"].items():
             if v.get("native_hwid") == hwid and time.time() < v.get("expires", 0):
                 return jsonify({"success": False, "msg": "PC Already Registered!"})
+
+        # İsim Kontrolü
+        for k, v in database["keys"].items():
+            if v.get("registered_name") and v.get("registered_name").lower() == discord_name.lower():
+                 if time.time() < v.get("expires", 0):
+                    return jsonify({"success": False, "msg": "Discord User Already Registered!"})
 
         guild = bot.get_guild(GUILD_ID)
         if not guild: return jsonify({"success": False, "msg": "Server Error"})
@@ -144,7 +157,7 @@ def register():
 
         asyncio.run_coroutine_threadsafe(send_dm_key(member, new_key), bot.loop)
         
-        # --- BAŞARILI KAYIT LOGU (Uzak Sunucuya) ---
+        # --- BAŞARILI KAYIT LOGU ---
         threading.Thread(target=send_log_remote, args=("New Registration", discord_name, new_key, hwid, ip)).start()
 
         return jsonify({"success": True, "msg": "Key sent to DM!"})
@@ -173,8 +186,8 @@ def verify():
         else: ip = request.remote_addr
 
         if key not in database["keys"]: 
-            # Geçersiz Key Logu
-            threading.Thread(target=send_log_remote, args=("Invalid Key Attempt", pc_user, key, sent_hwid, ip)).start()
+            # Hatalı Key Logu
+            threading.Thread(target=send_log_remote, args=("Invalid Key", pc_user, key, sent_hwid, ip)).start()
             return jsonify({"valid": False, "msg": "Invalid Key"})
         
         info = database["keys"][key]
@@ -182,6 +195,7 @@ def verify():
         log_user_display = f"{pc_user} ({registered_user})"
 
         if time.time() > info["expires"]: 
+            # Süresi Bitmiş Key Logu
             threading.Thread(target=send_log_remote, args=("Expired License", log_user_display, key, sent_hwid, ip)).start()
             return jsonify({"valid": False, "msg": "Expired"})
 
@@ -215,7 +229,7 @@ def verify():
         if valid:
             rem = int(info["expires"] - time.time())
             
-            # --- BAŞARILI GİRİŞ LOGU (Uzak Sunucuya) ---
+            # --- BAŞARILI GİRİŞ LOGU ---
             threading.Thread(target=send_log_remote, args=(status_log, log_user_display, key, sent_hwid, ip)).start()
             
             return jsonify({"valid": True, "msg": "Success", "left": f"{rem//86400}d"})
