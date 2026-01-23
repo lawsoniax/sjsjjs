@@ -27,12 +27,14 @@ ADMIN_IDS = [1358830140343193821, 1039946239938142218]
 
 # --- ESKİ KEYLER ---
 INITIAL_KEYS = {
-    # Buraya uzun key listeni yapıştırabilirsin, database'den de okur.
+    # Buraya önceki uzun key listeni yapıştırabilirsin.
+    # Boş kalsa da sorun değil, veritabanı dosyasından okur.
 }
 
 # --- SİSTEM KURULUMU ---
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -58,28 +60,37 @@ def load_db():
             with open(DB_FILE, "r") as f: 
                 data = json.load(f)
                 for k in ["keys", "users", "blacklisted_hwids"]:
-                    if k not in data: data[k] = [] if "list" in k else {}
+                    if k not in data: 
+                        data[k] = [] if "list" in k else {}
                 database = data
-        except: pass
+        except: 
+            pass
     else:
         database["keys"] = INITIAL_KEYS
         save_db()
 
+# --- HATA DÜZELTİLDİ: Tek satır yerine blok yapıldı ---
 def save_db():
-    try: with open(DB_FILE, "w") as f: json.dump(database, f)
-    except: pass
+    try:
+        with open(DB_FILE, "w") as f:
+            json.dump(database, f)
+    except:
+        pass
 
 load_db()
 
 def send_to_logger(payload):
-    try: requests.post(LOGGER_SERVICE_URL, json=payload, timeout=2)
-    except: pass
+    try:
+        requests.post(LOGGER_SERVICE_URL, json=payload, timeout=2)
+    except:
+        pass
 
 # --- BOT EVENTS ---
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     try:
+        # Komutları zorla senkronize et
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
@@ -113,7 +124,7 @@ def register():
                 if time.time() < v.get("expires", 0):
                     return jsonify({"success": False, "msg": "PC Already Registered!"})
 
-        # İsim Kontrolü (Başkasının ismini alamasın)
+        # İsim Kontrolü
         for k, v in database["keys"].items():
             if v.get("registered_name") and v.get("registered_name").lower() == discord_name.lower():
                  if time.time() < v.get("expires", 0):
@@ -174,11 +185,17 @@ def verify():
         valid = False
         if is_loader:
             if info.get("native_hwid") == sent_hwid: valid = True
-            elif info.get("native_hwid") is None: info["native_hwid"] = sent_hwid; save_db(); valid = True
+            elif info.get("native_hwid") is None: 
+                info["native_hwid"] = sent_hwid
+                save_db()
+                valid = True
             else: return jsonify({"valid": False, "msg": "Wrong PC"})
         else:
             if info.get("roblox_hwid") == sent_hwid: valid = True
-            elif info.get("roblox_hwid") is None: info["roblox_hwid"] = sent_hwid; save_db(); valid = True
+            elif info.get("roblox_hwid") is None: 
+                info["roblox_hwid"] = sent_hwid
+                save_db()
+                valid = True
             else: return jsonify({"valid": False, "msg": "Wrong Roblox Acc"})
         
         if valid:
@@ -191,9 +208,8 @@ def verify():
 
 @bot.tree.command(name="listkeys", description="List all active licenses (Admin Only)")
 async def listkeys(interaction: discord.Interaction):
-    # 1. ID KONTROLÜ (Sadece ADMIN_IDS listesindekiler kullanabilir)
     if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("⛔ You are not authorized to use this command.", ephemeral=True)
+        await interaction.response.send_message("⛔ You are not authorized.", ephemeral=True)
         return
 
     if not database["keys"]: 
@@ -212,7 +228,6 @@ async def listkeys(interaction: discord.Interaction):
 
 @bot.tree.command(name="reset_user", description="Reset HWID for a specific key (Admin Only)")
 async def reset_user(interaction: discord.Interaction, key: str):
-    # Bu da sadece size özel
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("⛔ Unauthorized.", ephemeral=True); return
 
