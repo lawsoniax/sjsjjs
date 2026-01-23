@@ -20,8 +20,8 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1460981897730592798 
 DB_FILE = "anarchy_keys.json"
 
-# LOGGER SERVİS ADRESİ (Logger.py'nin olduğu link)
-LOGGER_SERVICE_URL = "https://asdasdj.onrender.com" 
+# LOGGER ADRESİ (Kendi Logger URL'nizi buraya yazın)
+LOGGER_SERVICE_URL = "https://SENIN-LOGGER-SITEN.onrender.com" 
 
 # --- DISCORD OAUTH ---
 CLIENT_ID = "1464002253244600511" 
@@ -87,47 +87,32 @@ def get_ip():
     if request.headers.getlist("X-Forwarded-For"): return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
     return request.remote_addr
 
-# ==========================================
-#        LUA SCRIPT İÇİN ÖZEL ENDPOINTLER
-# ==========================================
-
-# 1. LUA: Roblox İsmini Güncelleme
+# --- LUA ENDPOINTS ---
 @app.route('/update_roblox', methods=['POST'])
 def update_roblox():
     try:
         data = request.json
         key = data.get("key")
         roblox_user = data.get("roblox_user")
-        
         if key in database["keys"] and roblox_user:
-            database["keys"][key]["roblox_nick"] = roblox_user
-            save_db()
+            database["keys"][key]["roblox_nick"] = roblox_user; save_db()
             return jsonify({"success": True})
         return jsonify({"success": False})
     except: return jsonify({"success": False})
 
-# 2. LUA: "Anarchy Users" Listesini Çekme
 @app.route('/get_users', methods=['GET'])
 def get_users():
     try:
         user_list = []
         for k, v in database["keys"].items():
-            # Sadece Roblox ismi olanları (Oyuna girenleri) listele
             r_nick = v.get("roblox_nick", "N/A")
             d_name = v.get("registered_name", "Unknown")
-            
-            # Listeye ekle (Formatı Lua scriptine göre ayarlayabilirsin)
-            user_list.append({
-                "roblox": r_nick,
-                "discord": d_name,
-                "status": "Online" # Basitlik olsun diye hepsi online gibi
-            })
-            
+            user_list.append({"roblox": r_nick, "discord": d_name, "status": "Online"})
         return jsonify(user_list)
     except: return jsonify([])
 
 # ==========================================
-#        C++ LOADER İŞLEMLERİ
+#        C++ LOADER (GÜNCELLENDİ)
 # ==========================================
 
 @app.route('/register', methods=['POST'])
@@ -139,6 +124,7 @@ def register():
         pc_user = data.get("pc_user", "Unknown")
         ip = get_ip()
 
+        # 1. GÜVENLİK KONTROLÜ (CEZALI MI?)
         sec_check = check_security(hwid)
         if not sec_check["allowed"]: return jsonify({"success": False, "msg": sec_check["msg"]})
 
@@ -148,17 +134,23 @@ def register():
         member = guild.get_member_named(discord_name) if guild else None
         
         if not member:
-            punish_user(hwid)
+            punish_user(hwid) # HATA -> CEZA EKLE
             return jsonify({"success": False, "msg": "User Not Found"})
 
+        # --- ZATEN KAYITLI MI? ---
         existing_key = None
         for k, v in database["keys"].items():
             if v.get("assigned_id") == member.id and time.time() < v.get("expires", 0):
                 existing_key = k
                 break
         
-        if existing_key: return jsonify({"success": False, "msg": "Already Registered!"})
+        if existing_key:
+            # YENİ EKLEME: Zaten kayıtlıysa da CEZA PUANI EKLE!
+            # İlk basışta uyarır, ikinci basışta 60sn ceza verir.
+            punish_user(hwid) 
+            return jsonify({"success": False, "msg": "Already Registered!"})
 
+        # --- YENİ KAYIT ---
         raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
         new_key = f"ANARCHY-{raw}"
         
@@ -169,7 +161,7 @@ def register():
         }
         save_db()
         
-        clear_punish(hwid)
+        clear_punish(hwid) # Başarılıysa sicili temizle
         asyncio.run_coroutine_threadsafe(member.send(f"Anarchy License: `{new_key}`"), bot.loop)
         log_to_service(discord_name, new_key, hwid, ip, "New Register")
         
@@ -182,26 +174,34 @@ def verify():
         data = request.json
         key = data.get("key")
         hwid = data.get("hwid")
+        pc_user = data.get("pc_user", "Unknown")
+        roblox = data.get("roblox_user")
         ip = get_ip()
 
+        # 1. GÜVENLİK KONTROLÜ
         sec_check = check_security(hwid)
         if not sec_check["allowed"]: return jsonify({"valid": False, "msg": sec_check["msg"]})
 
+        # Yanlış Key
         if key not in database["keys"]:
-            punish_user(hwid)
+            punish_user(hwid) # HATA -> CEZA EKLE
             log_to_service("Unknown", key, hwid, ip, "Invalid Key Attempt")
             return jsonify({"valid": False, "msg": "Invalid Key"})
         
         info = database["keys"][key]
         if time.time() > info["expires"]: return jsonify({"valid": False, "msg": "Expired"})
 
+        # Yanlış Bilgisayar (HWID)
         if info.get("native_hwid") and info.get("native_hwid") != hwid:
+            punish_user(hwid) # HATA -> CEZA EKLE
             return jsonify({"valid": False, "msg": "Wrong HWID"})
         
         if not info.get("native_hwid"): 
             info["native_hwid"] = hwid; save_db()
 
-        clear_punish(hwid)
+        if roblox: info["roblox_nick"] = roblox; save_db()
+
+        clear_punish(hwid) # Başarılı giriş -> Sicili temizle
         log_to_service(info.get("registered_name"), key, hwid, ip, "Login Success")
         return jsonify({"valid": True, "msg": "Success"})
 
@@ -209,17 +209,14 @@ def verify():
 
 # --- DISCORD ---
 @app.route('/callback')
-def discord_callback():
-    return "Login Endpoint Active"
+def discord_callback(): return "Login Endpoint Active"
 
 @bot.tree.command(name="listkeys")
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("No permission", ephemeral=True); return
-    
     lines = [f"{'KEY':<20} | {'DISCORD':<15} | {'ROBLOX':<15}", "-" * 60]
     for k, v in database["keys"].items():
         lines.append(f"{k} | {v.get('registered_name','?'):<15} | {v.get('roblox_nick','N/A'):<15}")
-    
     f = discord.File(io.StringIO("\n".join(lines)), filename="db.txt")
     await interaction.response.send_message("DB:", file=f, ephemeral=True)
 
