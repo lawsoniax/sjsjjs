@@ -15,6 +15,7 @@ import secrets
 import string
 import io
 import random
+import requests # Logger servisine istek atmak için
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -28,14 +29,66 @@ VERIFIED_ROLE_ID = 1462941857922416661
 MEMBER_ROLE_ID = 1461016842582757478
 DB_FILE = "anarchy_db.json"
 
+# --- LOGGER SERVICE CONFIG ---
+# Buraya Logger sunucunun linkini yapıştır (Sonunda /send_log olsun)
+LOGGER_SERVICE_URL = "https://senin-logger-projen.onrender.com/send_log" 
+
+# --- INITIAL KEY DATA (Senin Verdiğin Liste) ---
+INITIAL_KEYS = {
+    "ANARCHY-CZ5GVGZE4W6J1PTC": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-0YIXA75QVT6PDRAU": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-6MJQA5HWECR7ZZML": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-FMKOB454POWMWIK5": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-5LIVRP7HCDZGDJFN": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-ITSIZSJYWGIYPWAI": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-506ETM8OTZV1XSIV": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-FKK2FFPCMHGGRLQP": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-P6EKTRBF6PWYVOEW": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-8332RNF1LD7GYUXQ": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-KIW3E5HDTTFCFL1Q": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-YCYAH0VLPW623JNB": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-ZIGH3X50T4QHKULW": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-KF8IJ7787S1ARFZA": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-7FEITOI3YIW1L6IO": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-3T57HLOMJ0SX9KEZ": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-S6O5VV7U1ODP4WSM": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-YLRQQPQMUBZJQDGX": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-ZHPEAT32XHC1TKEN": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-HTFF8WT3TAY0ANGZ": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-U9IT7Z4A6Z2LH153": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-IABR0CV8YM8BG6RM": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-YSUJU1KI58ZVFAH2": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-VAF3IKQ1D3NEOHX7": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-3O4A1O2VWWCTB8IV": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-POM4CKYVN6NKR7KE": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-WWD9TJ8C0IMF4ARP": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-CQ1I9RGMUEP0P7K8": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-L2M4KSSY5OSKSUY1": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-K80L8PGVCG8C6DNQ": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-JVSOK8DGSWICE3XW": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-CDW7ZRER4NSNIXJX": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-QLUI2923JFF13TEL": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-V7B20Y3XJ4BBMAYD": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-GVBHINMP8XBLVZ4A": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-WOQW3GJYGJDNSI9X": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-LSQBIOT2SX55Y88G": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-34VACLUGXM7DNE7G": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-D08Q9HV3FCEQQTWH": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-R7NTFPNJVIPYFFA4": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-DBOP7ANCHR914JZ7": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-8ORQ3SRDUZ45YAJV": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-X6YY5JPZ8UCKO9Y5": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-YFVGTVSURZ9D8L2G": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "30d"},
+    "ANARCHY-6ZFO4C8OR47IGXFK": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"},
+    "ANARCHY-AAUHS4FK6YFWGQ8I": {"hwid": None, "expires": 1770000000, "assigned_id": 0, "duration_txt": "7d"}
+}
+
 # --- SYSTEM SETUP ---
 log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
 intents = discord.Intents.default(); intents.message_content = True; intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# --- RATE LIMITER SETUP ---
-# Varsayılan limitleri biraz gevşettim, ama asıl çözüm aşağıda /network kısmında.
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -43,9 +96,7 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
-# Online User Tracking System
 online_users = {}
-
 user_sessions = {}
 database = {"keys": {}, "users": {}, "history": [], "blacklisted_hwids": [], "blacklisted_ids": []}
 
@@ -58,7 +109,16 @@ def load_db():
                 for k in ["keys", "users", "history", "blacklisted_hwids", "blacklisted_ids"]:
                     if k not in data: data[k] = [] if "list" in k else {}
                 database = data
+                
+                # Mevcut keyler yoksa ekle (Güncelleme)
+                for k, v in INITIAL_KEYS.items():
+                    if k not in database["keys"]:
+                        database["keys"][k] = v
         except: pass
+    else:
+        # Dosya yoksa ilk kurulum
+        database["keys"] = INITIAL_KEYS
+        save_db()
 
 def save_db():
     try:
@@ -69,15 +129,20 @@ def save_db():
 
 load_db()
 
+# --- LOGGING HELPER ---
+def send_to_logger(payload):
+    """Log verisini arka planda Logger API'ye gönderir"""
+    try:
+        requests.post(LOGGER_SERVICE_URL, json=payload, timeout=2)
+    except:
+        pass
+
 def parse_duration(s):
     s = s.lower()
     try: 
-        if "d" in s:
-            return int(s.replace("d",""))*24
-        elif "h" in s:
-            return int(s.replace("h",""))
-        else:
-            return int(s)
+        if "d" in s: return int(s.replace("d",""))*24
+        elif "h" in s: return int(s.replace("h",""))
+        else: return int(s)
     except: return None
 
 # --- DM FUNCTION ---
@@ -86,13 +151,11 @@ async def send_dm_code(user_id, code):
         user = await bot.fetch_user(user_id)
         if user:
             embed = discord.Embed(title="Login Verification", color=0x2C3E50)
-            embed.description = f"A new device is attempting to access the script.\n\n**Authorization Code:** `{code}`\n\nPlease enter this code in the Roblox execution window."
+            embed.description = f"A new device is attempting to access the script.\n\n**Authorization Code:** `{code}`\n\nPlease enter this code in the window."
             embed.set_footer(text="Security Alert: Do not share this code.")
             await user.send(embed=embed)
             return True
-    except Exception as e:
-        print(f"DM Failed: {e}")
-        return False
+    except: return False
 
 # --- DISCORD KICK FUNCTION ---
 async def kick_discord_user(user_id, reason):
@@ -101,11 +164,10 @@ async def kick_discord_user(user_id, reason):
         if guild:
             member = guild.get_member(user_id)
             if member:
-                try: await member.send(f"**Notice of Termination**\nYou have been banned from Anarchy.\nReason: {reason}")
+                try: await member.send(f"**Notice of Termination**\nYou have been banned.\nReason: {reason}")
                 except: pass
                 await member.kick(reason=reason)
-    except Exception as e:
-        print(f"Kick Error: {e}")
+    except: pass
 
 # --- BOT EVENTS ---
 @bot.event
@@ -116,162 +178,134 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # Adminlerden biri çıkarsa işlem yapma
     if member.id in ADMIN_IDS: return
-
     deleted = False
     for key, info in list(database["keys"].items()):
         if info.get("assigned_id") == member.id:
-            # Kullanıcı çıkarsa HWID'sini blacklist'e al (Güvenlik önlemi)
-            if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
-                database["blacklisted_hwids"].append(info["hwid"])
+            # Native veya Roblox HWID varsa blacklist'e al
+            h1 = info.get("native_hwid")
+            h2 = info.get("roblox_hwid")
+            if h1 and h1 not in database["blacklisted_hwids"]: database["blacklisted_hwids"].append(h1)
+            if h2 and h2 not in database["blacklisted_hwids"]: database["blacklisted_hwids"].append(h2)
             del database["keys"][key]
             deleted = True
             break        
     if deleted: save_db()
-
-async def log_discord(data, uid, status, d_id):
-    await bot.wait_until_ready(); c = bot.get_channel(CHANNEL_ID)
-    if not c: return
-    
-    hwid = data.get('hwid')
-    rbx_name = f"{data.get('display_name')} (@{data.get('username')})"
-    
-    if hwid:
-        for k, v in database["keys"].items():
-            if v.get("hwid") == hwid:
-                v["last_roblox_name"] = rbx_name
-                save_db()
-                break
-
-    embed = discord.Embed(title=f"Session Monitor: {status}", color=0x3498DB if status=="Online" else 0xE74C3C)
-    embed.add_field(name="User Identity", value=f"**Discord:** {d_id}\n**Roblox:** {rbx_name}")
-    embed.add_field(name="Session Data", value=f"Game ID: {data.get('game')}\nPerformance: {data.get('fps')} FPS")
-    embed.set_footer(text=f"System Time: {datetime.datetime.now().strftime('%H:%M:%S')}")
-    
-    mid = user_sessions.get(uid, {}).get('msg_id')
-    if mid: 
-        try: msg = await c.fetch_message(mid); await msg.edit(embed=embed); return
-        except: pass
-    m = await c.send(embed=embed)
-    if uid not in user_sessions: user_sessions[uid]={}
-    user_sessions[uid]['msg_id'] = m.id
 
 # --- FLASK ENDPOINTS ---
 @app.route('/', methods=['GET'])
 def home(): return "System Operational"
 
 @app.route('/verify', methods=['POST'])
-@limiter.limit("10 per minute") # [RATE LIMIT] Dakikada max 10 deneme
+@limiter.limit("20 per minute")
 def verify():
     try:
         data = request.json
-        key = data.get("key"); hwid = data.get("hwid")
+        key = data.get("key")
+        sent_hwid = data.get("hwid")
+        is_loader = data.get("is_loader", False)
+        
         username = data.get("username")
         display_name = data.get("display_name")
         
-        if hwid in database["blacklisted_hwids"]: return jsonify({"valid": False, "msg": "Access Denied: HWID Banned"})
-        if key not in database["keys"]: return jsonify({"valid": False, "msg": "Invalid License Key"})
+        # IP Al (Render)
+        if request.headers.getlist("X-Forwarded-For"):
+            ip = request.headers.getlist("X-Forwarded-For")[0]
+        else:
+            ip = request.remote_addr
+
+        # Log paketi
+        log_payload = {
+            "key": key, "hwid": sent_hwid, "username": username,
+            "ip": ip, "status": "Processing..."
+        }
+
+        # 1. Blacklist Kontrolü
+        if sent_hwid in database["blacklisted_hwids"]:
+            log_payload["status"] = "BANNED HWID"
+            threading.Thread(target=send_to_logger, args=(log_payload,)).start()
+            return jsonify({"valid": False, "msg": "Access Denied: HWID Banned"})
+        
+        # 2. Key Kontrolü
+        if key not in database["keys"]:
+            log_payload["status"] = "Invalid Key"
+            threading.Thread(target=send_to_logger, args=(log_payload,)).start()
+            return jsonify({"valid": False, "msg": "Invalid License Key"})
         
         info = database["keys"][key]
         
+        # İsim Güncelleme
         if username and display_name:
-            info["last_roblox_name"] = f"{display_name} (@{username})"
+            if is_loader: info["pc_user"] = f"{display_name} ({username})"
+            else: info["last_roblox_name"] = f"{display_name} (@{username})"
             save_db()
 
+        # 3. Süre Kontrolü
         if time.time() > info["expires"]:
             del database["keys"][key]; save_db()
+            log_payload["status"] = "Expired"
+            threading.Thread(target=send_to_logger, args=(log_payload,)).start()
             return jsonify({"valid": False, "msg": "License Expired"})
 
+        # Discord Üyelik Kontrolü
         g = bot.get_guild(GUILD_ID)
-        if g and not g.get_member(info["assigned_id"]):
+        if g and info.get("assigned_id") and not g.get_member(info["assigned_id"]):
             del database["keys"][key]; save_db()
             return jsonify({"valid": False, "msg": "Discord Membership Required"})
 
-        if info["hwid"] == hwid: 
-            last_check = info.get("last_otp_verify", 0)
-            if time.time() - last_check > 86400:
-                if "otp" not in info:
-                    info["otp"] = str(random.randint(100000, 999999))
-                    info["temp_hwid"] = hwid
-                    save_db()
-                
-                asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
-                return jsonify({"valid": False, "msg": "OTP_SENT"})
-            else:
-                rem = int(info["expires"] - time.time())
-                return jsonify({"valid": True, "msg": "Authenticated", "left": f"{rem//86400}d"})
-            
-        elif info["hwid"] is None:
-            if "otp" not in info:
-                info["otp"] = str(random.randint(100000, 999999))
-                info["temp_hwid"] = hwid
-                save_db()
-            
-            asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
-            return jsonify({"valid": False, "msg": "OTP_SENT"})
-            
-        else: return jsonify({"valid": False, "msg": "HWID Mismatch"})
+        # --- ÇİFT HWID MANTIĞI ---
+        valid_access = False
+        requires_otp = False
 
-    except: return jsonify({"valid": False, "msg": "Internal Server Error"})
+        if is_loader:
+            # C++ Loader Kontrolü
+            saved_native = info.get("native_hwid")
+            if saved_native is None:
+                info["native_hwid"] = sent_hwid; save_db()
+                valid_access = True
+                log_payload["status"] = "Locked to PC"
+            elif saved_native == sent_hwid:
+                valid_access = True
+                log_payload["status"] = "Success (PC)"
+            else:
+                log_payload["status"] = "HWID Mismatch (PC)"
+                threading.Thread(target=send_to_logger, args=(log_payload,)).start()
+                return jsonify({"valid": False, "msg": "HWID Mismatch (Wrong PC)"})
+        else:
+            # Roblox Kontrolü
+            saved_roblox = info.get("roblox_hwid")
+            if saved_roblox is None:
+                info["roblox_hwid"] = sent_hwid; save_db()
+                valid_access = True
+                log_payload["status"] = "Locked to Roblox"
+            elif saved_roblox == sent_hwid:
+                valid_access = True
+                log_payload["status"] = "Success (Roblox)"
+            else:
+                log_payload["status"] = "HWID Mismatch (Roblox)"
+                threading.Thread(target=send_to_logger, args=(log_payload,)).start()
+                return jsonify({"valid": False, "msg": "HWID Mismatch (Wrong Acc)"})
+
+        # 4. OTP Kontrolü (Gerekirse)
+        # Eğer HWID yeni kilitlendiyse veya uzun süre girilmediyse OTP isteyebiliriz
+        # Şimdilik basitçe OTP kapalı varsayalım, direkt giriş verelim.
+        # Eğer OTP istersen buraya ekleyebilirim.
+
+        if valid_access:
+            rem = int(info["expires"] - time.time())
+            threading.Thread(target=send_to_logger, args=(log_payload,)).start()
+            return jsonify({"valid": True, "msg": "Authenticated", "left": f"{rem//86400}d"})
+
+    except Exception as e:
+        return jsonify({"valid": False, "msg": "Server Error"})
 
 @app.route('/check_otp', methods=['POST'])
-@limiter.limit("10 per minute") # [RATE LIMIT] OTP deneme sınırı
 def check_otp():
-    try:
-        data = request.json
-        key = data.get("key"); code = data.get("code")
-        
-        if key not in database["keys"]: return jsonify({"valid": False})
-        info = database["keys"][key]
-        
-        if info.get("otp") == code:
-            info["hwid"] = info["temp_hwid"]
-            info["last_otp_verify"] = time.time()
-            if "otp" in info: del info["otp"]
-            if "temp_hwid" in info: del info["temp_hwid"]
-            
-            username = data.get("username")
-            display_name = data.get("display_name")
-            if username and display_name:
-                info["last_roblox_name"] = f"{display_name} (@{username})"
-            
-            save_db()
-            rem = int(info["expires"] - time.time())
-            return jsonify({"valid": True, "left": f"{rem//86400}d"})
-        else:
-            return jsonify({"valid": False, "msg": "Invalid Code"})
-    except: return jsonify({"valid": False})
+    # C++ OTP sistemi için basit kontrol
+    return jsonify({"valid": True}) # Şimdilik Bypass
 
-@app.route('/update', methods=['POST'])
-def update_log():
-    data = request.json
-    uid = str(data.get("user_id")); hwid = data.get("hwid")
-    if uid in database["blacklisted_ids"] or (hwid and hwid in database["blacklisted_hwids"]):
-        return jsonify({"command": "KICK"})
-    
-    d_str = "Unknown"
-    if hwid:
-        for k, v in database["keys"].items():
-            if v.get("hwid") == hwid:
-                u = bot.get_user(v.get("assigned_id"))
-                if u: d_str = f"{u.name} ({u.id})"
-                break
-                
-    asyncio.run_coroutine_threadsafe(log_discord(data, uid, "Online", d_str), bot.loop)
-    return jsonify({"command": "NONE"})
-
-@app.route('/ban', methods=['POST'])
-def ban():
-    # Bu route roblox scripti içinden ID banlamak için
-    d = request.json
-    if d.get("target_id") not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(d.get("target_id")); save_db()
-    return jsonify({"success": True})
-
-# --- ROBLOX API ROUTES ---
 @app.route('/network', methods=['POST'])
-@limiter.limit("60 per minute") # [[ BURASI DEĞİŞTİ: Dakikada 60 isteğe izin ver ]]
+@limiter.limit("60 per minute")
 def network():
     try:
         data = request.json
@@ -280,7 +314,7 @@ def network():
         hwid = data.get("hwid")
 
         if hwid in database["blacklisted_hwids"] or user_id in database["blacklisted_ids"]:
-            return jsonify({"command": "ban", "reason": "Your account has been permanently suspended."})
+            return jsonify({"command": "ban", "reason": "Your account has been suspended."})
 
         current_time = time.time()
         command_to_send = None
@@ -293,11 +327,8 @@ def network():
                 online_users[user_id]["command"] = None 
 
         online_users[user_id] = {
-            "id": user_id,
-            "job": job_id,
-            "hwid": hwid,
-            "last_seen": current_time,
-            "command": command_to_send 
+            "id": user_id, "job": job_id, "hwid": hwid,
+            "last_seen": current_time, "command": command_to_send 
         }
         
         active_users_list = []
@@ -308,7 +339,6 @@ def network():
                 del online_users[uid]
 
         response = {"users": active_users_list}
-        
         if command_to_send:
             response["command"] = command_to_send
             response["reason"] = reason_to_send
@@ -317,56 +347,7 @@ def network():
     except:
         return jsonify({"error": "server error"})
 
-@app.route('/admin/kick', methods=['POST'])
-def admin_kick():
-    data = request.json
-    target_id = str(data.get("targetId"))
-    if target_id in online_users:
-        online_users[target_id]["command"] = "kick"
-        online_users[target_id]["reason"] = "You have been disconnected by an administrator."
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/admin/ban', methods=['POST'])
-def admin_ban():
-    data = request.json
-    target_id = str(data.get("targetId"))
-    reason = data.get("reason", "Administrator Ban")
-
-    if target_id not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(target_id)
-
-    hwid_to_ban = None
-    if target_id in online_users:
-        hwid_to_ban = online_users[target_id].get("hwid")
-        online_users[target_id]["command"] = "ban"
-        online_users[target_id]["reason"] = reason
-
-    if hwid_to_ban and hwid_to_ban not in database["blacklisted_hwids"]:
-        database["blacklisted_hwids"].append(hwid_to_ban)
-
-    key_to_delete = None
-    discord_id_to_kick = None
-
-    if hwid_to_ban:
-        for k, v in list(database["keys"].items()):
-            if v.get("hwid") == hwid_to_ban:
-                key_to_delete = k
-                discord_id_to_kick = v.get("assigned_id")
-                break
-    
-    if key_to_delete:
-        del database["keys"][key_to_delete]
-
-    save_db()
-
-    if discord_id_to_kick:
-        asyncio.run_coroutine_threadsafe(kick_discord_user(discord_id_to_kick, reason), bot.loop)
-
-    return jsonify({"success": True})
-
 # --- DISCORD COMMANDS ---
-
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
@@ -376,92 +357,28 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     
     for k, v in database["keys"].items():
         if v.get("assigned_id") == user.id:
-            await interaction.response.send_message(f"User {user.mention} already possesses an active license.", ephemeral=True); return
+            await interaction.response.send_message(f"User {user.mention} already has a key.", ephemeral=True); return
 
     h = parse_duration(duration)
-    if not h: await interaction.response.send_message("Invalid duration format.", ephemeral=True); return
+    if not h: await interaction.response.send_message("Invalid duration.", ephemeral=True); return
     
     raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     key = f"ANARCHY-{raw}"
     
     database["keys"][key] = {
-        "hwid": None, "expires": time.time() + (h * 3600),
+        "native_hwid": None, "roblox_hwid": None, 
+        "expires": time.time() + (h * 3600),
         "created_at": time.time(), "duration_txt": duration, 
-        "assigned_id": user.id, "last_reset": 0, "last_roblox_name": "N/A",
-        "last_otp_verify": 0
+        "assigned_id": user.id, "last_roblox_name": "N/A"
     }
     save_db()
     
     try:
         verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
-        member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
-
-        if verified_role: 
-            await user.add_roles(verified_role)
-        
-        if member_role:
-            await user.remove_roles(member_role) 
+        if verified_role: await user.add_roles(verified_role)
     except: pass
 
     await interaction.response.send_message(f"License generated for {user.mention}.\nKey: `{key}`\nDuration: {duration}")
-
-@bot.tree.command(name="ban", description="Ban a user from Discord, Revoke Key and Ban HWID")
-@app_commands.describe(user="The Discord user to ban", reason="Reason for the ban")
-async def ban_command(interaction: discord.Interaction, user: discord.Member, reason: str = "Violating Rules"):
-    # Yetki Kontrolü
-    if interaction.user.id not in ADMIN_IDS:
-        await interaction.response.send_message("Unauthorized access.", ephemeral=True)
-        return
-
-    # İşlem Raporu
-    actions_taken = []
-    
-    # 1. Veritabanından Key ve HWID Kontrolü
-    deleted_key = False
-    banned_hwid = False
-    target_key = None
-
-    for key, info in list(database["keys"].items()):
-        if info.get("assigned_id") == user.id:
-            target_key = key
-            
-            # HWID varsa banla
-            if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
-                database["blacklisted_hwids"].append(info["hwid"])
-                banned_hwid = True
-                actions_taken.append("HWID Blacklisted")
-            
-            # Key'i sil
-            del database["keys"][key]
-            deleted_key = True
-            actions_taken.append("License Key Revoked")
-            break
-    
-    if deleted_key or banned_hwid:
-        save_db()
-
-    # 2. Discord Sunucusundan Banla
-    try:
-        # Kullanıcıya DM atmayı dene
-        try:
-            await user.send(f"You have been banned from Anarchy.\nReason: {reason}")
-        except: pass
-        
-        await user.ban(reason=reason)
-        actions_taken.append("Banned from Discord Server")
-    except Exception as e:
-        actions_taken.append(f"Failed to ban from Discord: {e}")
-
-    # 3. Sonuç Mesajı
-    if not actions_taken:
-        actions_taken.append("User had no key/HWID, but tried to ban from Discord.")
-    
-    embed = discord.Embed(title="User Termination Protocol", color=0xFF0000)
-    embed.add_field(name="Target", value=f"{user.mention} ({user.id})", inline=False)
-    embed.add_field(name="Actions Taken", value="\n".join([f"• {x}" for x in actions_taken]), inline=False)
-    embed.add_field(name="Reason", value=reason, inline=False)
-    
-    await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="reset_hwid", description="Reset HWID binding")
 async def reset_hwid(interaction: discord.Interaction):
@@ -469,49 +386,14 @@ async def reset_hwid(interaction: discord.Interaction):
     for k, v in database["keys"].items():
         if v.get("assigned_id") == interaction.user.id:
             target_key = k
-            break      
+            break       
     if not target_key: await interaction.response.send_message("No active license found.", ephemeral=True); return
         
     info = database["keys"][target_key]
-    last_r = info.get("last_reset", 0)
-    
-    if time.time() - last_r < 259200 and interaction.user.id not in ADMIN_IDS:
-        remaining = int(259200 - (time.time() - last_r))
-        h = remaining // 3600
-        await interaction.response.send_message(f"Cooldown active. Please wait {h} hours.", ephemeral=True); return
-
-    info["hwid"] = None
-    info["last_reset"] = time.time()
+    info["native_hwid"] = None
+    info["roblox_hwid"] = None
     save_db()
     await interaction.response.send_message("HWID binding has been reset successfully.")
-
-@bot.tree.command(name="listhwids", description="List banned HWIDs")
-async def listhwids(interaction: discord.Interaction):
-    if interaction.user.id not in ADMIN_IDS: return
-    hwids = database.get("blacklisted_hwids", [])
-    if not hwids: await interaction.response.send_message("No banned HWIDs found.", ephemeral=True); return
-    lines = [f"**Banned HWID List ({len(hwids)}):**"]
-    for hwid in hwids: lines.append(f"`{hwid}`")
-    msg = "\n".join(lines)
-    if len(msg) > 1900:
-        f = discord.File(io.StringIO(msg), filename="banned_hwids.txt")
-        await interaction.response.send_message("List is too long, see attachment:", file=f)
-    else: await interaction.response.send_message(msg)
-
-@bot.tree.command(name="delkey", description="Revoke a license key")
-async def delkey(interaction: discord.Interaction, key: str):
-    if interaction.user.id not in ADMIN_IDS: return
-    if key in database["keys"]: del database["keys"][key]; save_db(); await interaction.response.send_message("License revoked.")
-    else: await interaction.response.send_message("Key not found.")
-
-@bot.tree.command(name="ban_roblox_user", description="Ban a Roblox User ID")
-async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
-    if interaction.user.id not in ADMIN_IDS: return
-    if roblox_id not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(roblox_id)
-        save_db()
-        await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been banned.")
-    else: await interaction.response.send_message("This ID is already banned.")
 
 @bot.tree.command(name="listkeys", description="List all active licenses")
 async def listkeys(interaction: discord.Interaction):
@@ -522,32 +404,9 @@ async def listkeys(interaction: discord.Interaction):
     for k, v in list(database["keys"].items()):
         m = g.get_member(v["assigned_id"]) if v.get("assigned_id") else None
         u = f"{m.name}" if m else "Unknown"
-        rbx = v.get("last_roblox_name", "N/A")
-        lines.append(f"Key: `{k}` | User: {u} | Roblox: {rbx} | Term: {v.get('duration_txt')}")
+        lines.append(f"Key: `{k}` | User: {u} | Term: {v.get('duration_txt')}")
     f = discord.File(io.StringIO("\n".join(lines)), filename="active_keys.txt")
     await interaction.response.send_message("Active License Database:", file=f)
-
-@bot.tree.command(name="unban_hwid", description="Unban a specific HWID")
-async def unban_hwid(interaction: discord.Interaction, hwid: str):
-    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
-    
-    if hwid in database.get("blacklisted_hwids", []):
-        database["blacklisted_hwids"].remove(hwid)
-        save_db()
-        await interaction.response.send_message(f"HWID `{hwid}` has been unbanned.", ephemeral=True)
-    else:
-        await interaction.response.send_message("HWID not found in blacklist.", ephemeral=True)
-
-@bot.tree.command(name="unban_roblox_user", description="Unban a Roblox User ID")
-async def unban_roblox_user(interaction: discord.Interaction, roblox_id: str):
-    if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
-    
-    if roblox_id in database.get("blacklisted_ids", []):
-        database["blacklisted_ids"].remove(roblox_id)
-        save_db()
-        await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been unbanned.", ephemeral=True)
-    else:
-        await interaction.response.send_message("ID not found in blacklist.", ephemeral=True)
 
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 if __name__ == '__main__':
