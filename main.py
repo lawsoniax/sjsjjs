@@ -15,6 +15,7 @@ import secrets
 import string
 import io
 import random
+import requests
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -54,6 +55,7 @@ limiter = Limiter(
 online_users = {}
 user_sessions = {}
 log_cooldowns = {}
+webhook_spam_map = {} 
 
 def parse_duration(s):
     s = s.lower()
@@ -176,9 +178,53 @@ async def log_discord(data, uid, status, d_id):
 @app.route('/', methods=['GET'])
 def home(): return "Anarchy Firebase System Operational"
 
+@app.route('/webhook_proxy', methods=['POST'])
+def webhook_proxy():
+    try:
+        user_key = request.headers.get('User-Agent')
+        data = request.json
+
+        if not user_key or user_key == "Roblox/Linux": 
+            return jsonify({"error": "Auth Required"}), 403
+
+        doc_ref = db.collection('keys').document(user_key)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            return jsonify({"error": "Invalid License Key"}), 403
+
+        current_time = time.time()
+        if user_key in webhook_spam_map:
+            last_request_time = webhook_spam_map[user_key]
+            if current_time - last_request_time < 2.0:
+                print(f"[SPAM DETECTED] Key: {user_key} is spamming webhooks. BANNING.")
+                
+                key_data = doc.to_dict()
+                if key_data.get('hwid'):
+                    ban_hwid_db(key_data['hwid'])
+                
+                doc_ref.delete()
+                
+                del webhook_spam_map[user_key]
+                return jsonify({"error": "Spam Detected - License Revoked"}), 429
+
+        webhook_spam_map[user_key] = current_time
+
+        if not WEBHOOK_URL:
+            return jsonify({"error": "Server Config Error"}), 500
+
+        discord_headers = {"Content-Type": "application/json"}
+        response = requests.post(WEBHOOK_URL, json=data, headers=discord_headers)
+        
+        return jsonify({"status": "sent", "code": response.status_code})
+
+    except Exception as e:
+        print(f"Proxy Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/get_webhook', methods=['GET'])
 def get_webhook_url():
-    return jsonify({"url": WEBHOOK_URL})
+    return jsonify({"url": ""})
 
 @app.route('/verify', methods=['POST'])
 @limiter.limit("10 per minute")
