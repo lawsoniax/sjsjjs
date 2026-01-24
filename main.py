@@ -15,6 +15,7 @@ import secrets
 import string
 import io
 import random
+import requests # EKLENDİ: Vault ile konuşmak için
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -26,6 +27,11 @@ ADMIN_IDS = [1358830140343193821, 1039946239938142218, 561405817744654366, 50394
 GUILD_ID = 1460981897730592798 
 VERIFIED_ROLE_ID = 1462941857922416661
 MEMBER_ROLE_ID = 1461016842582757478
+
+# --- VAULT (DEPO) AYARLARI ---
+VAULT_SERVER_URL = os.getenv("VAULT_URL") # Render Environment'tan çekecek
+VAULT_PASSWORD = os.getenv("VAULT_KEY")   # Render Environment'tan çekecek
+CACHED_SCRIPT = None # Scripti bir kere çekip burada saklayacağız
 
 if not firebase_config:
     print("Error: FIREBASE_CREDENTIALS not found in environment variables.")
@@ -53,6 +59,34 @@ limiter = Limiter(
 online_users = {}
 user_sessions = {}
 log_cooldowns = {}
+
+# --- VAULT FONKSİYONU ---
+def fetch_script_from_vault():
+    global CACHED_SCRIPT
+    if not VAULT_SERVER_URL or not VAULT_PASSWORD:
+        print("HATA: Render Environment Ayarlarini Kontrol Et! (VAULT_URL veya VAULT_KEY eksik)")
+        return False
+
+    try:
+        response = requests.get(
+            VAULT_SERVER_URL, 
+            headers={"Master-Key": VAULT_PASSWORD},
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json()
+            CACHED_SCRIPT = data.get("script")
+            print("Script Depo'dan başarıyla çekildi!")
+            return True
+        else:
+            print("Vault refused connection")
+            return False
+    except Exception as e:
+        print(f"Vault unreachable: {e}")
+        return False
+
+# Sunucu açılınca scripti çek
+fetch_script_from_vault()
 
 def parse_duration(s):
     s = s.lower()
@@ -179,6 +213,56 @@ async def log_discord(data, uid, status, d_id):
 
 @app.route('/', methods=['GET'])
 def home(): return "Anarchy Firebase System Operational"
+
+# --- YENİ EKLENEN KISIM: SCRIPT DAĞITIM ---
+@app.route('/get_script', methods=['POST'])
+def get_script():
+    try:
+        global CACHED_SCRIPT
+        # Eğer script hafızada yoksa (Sunucu yeni açıldıysa) tekrar çek
+        if not CACHED_SCRIPT:
+            if not fetch_script_from_vault():
+                return jsonify({"status": "error", "message": "Service Unavailable (Vault Error)"})
+
+        data = request.json
+        key = data.get("key")
+        hwid = data.get("hwid")
+        
+        # 1. HWID Kontrolü
+        if is_hwid_banned(hwid): return jsonify({"status": "error", "message": "HWID Banned"})
+        
+        # 2. Key Kontrolü
+        info = get_key_data(key)
+        if not info: return jsonify({"status": "error", "message": "Invalid Key"})
+        
+        # 3. Süre Kontrolü
+        if time.time() > info["expires"]:
+            delete_key_data(key)
+            return jsonify({"status": "error", "message": "Key Expired"})
+
+        # 4. Discord Kontrolü
+        if info["assigned_id"] != 0:
+            g = bot.get_guild(GUILD_ID)
+            if g and not g.get_member(info["assigned_id"]):
+                if info.get("hwid"): ban_hwid_db(info["hwid"])
+                delete_key_data(key)
+                return jsonify({"status": "error", "message": "Discord Membership Required"})
+
+        # 5. Eşleşme Kontrolü
+        if info["hwid"] == hwid: 
+            # HER ŞEY DOĞRUYSA SCRIPT'İ GÖNDER
+            return jsonify({"status": "success", "script": CACHED_SCRIPT})
+        elif info["hwid"] is None:
+            if info["assigned_id"] == 0:
+                update_key_data(key, {"hwid": hwid})
+                return jsonify({"status": "success", "script": CACHED_SCRIPT})
+            else:
+                return jsonify({"status": "otp_required"}) # OTP gerekiyor, scripti vermiyoruz
+        else:
+            return jsonify({"status": "error", "message": "HWID Mismatch"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/verify', methods=['POST'])
 @limiter.limit("10 per minute")
@@ -478,10 +562,10 @@ async def ban_command(interaction: discord.Interaction, user: discord.Member, re
         if info.get("hwid"):
             ban_hwid_db(info["hwid"])
             actions_taken.append("HWID Blacklisted")
-
+        
         delete_key_data(key_id)
         actions_taken.append("License Key Revoked")
-
+    
     try:
         try: await user.send(f"You have been banned from Anarchy.\nReason: {reason}")
         except: pass
@@ -568,6 +652,7 @@ async def listkeys(interaction: discord.Interaction):
         count += 1
         k = doc.id
         v = doc.to_dict()
+        
         if v.get("assigned_id") == 0:
             u = v.get("notes", "Unknown Imported User")
         else:
