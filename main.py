@@ -15,74 +15,53 @@ import secrets
 import string
 import io
 import random
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN")
+firebase_config = os.getenv("FIREBASE_CREDENTIALS")
+
 CHANNEL_ID = 1462815057669918821
-
-# Admin ID Listesi
 ADMIN_IDS = [1358830140343193821, 1039946239938142218]
-
 GUILD_ID = 1460981897730592798 
 VERIFIED_ROLE_ID = 1462941857922416661
 MEMBER_ROLE_ID = 1461016842582757478
-DB_FILE = "anarchy_db.json"
 
-# --- SYSTEM SETUP ---
+if not firebase_config:
+    print("Error: FIREBASE_CREDENTIALS not found in environment variables.")
+else:
+    try:
+        cred = credentials.Certificate(json.loads(firebase_config))
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        print("Firebase Connected Successfully.")
+    except Exception as e:
+        print(f"Firebase Connection Error: {e}")
+
 log = logging.getLogger('werkzeug'); log.setLevel(logging.ERROR)
 intents = discord.Intents.default(); intents.message_content = True; intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 app = Flask(__name__)
 
-# --- RATE LIMITER SETUP (YENİ EKLENDİ) ---
-# Sunucunu spam'den korumak için gerekli ayar.
-# Hafızada tutar (RAM kullanır), veritabanı gerektirmez.
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["200 per day", "60 per hour"], # Varsayılan genel limitler
+    default_limits=["200 per day", "60 per hour"],
     storage_uri="memory://"
 )
 
-# Online User Tracking System
 online_users = {}
-
 user_sessions = {}
-database = {"keys": {}, "users": {}, "history": [], "blacklisted_hwids": [], "blacklisted_ids": []}
-
-def load_db():
-    global database
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r") as f: 
-                data = json.load(f)
-                for k in ["keys", "users", "history", "blacklisted_hwids", "blacklisted_ids"]:
-                    if k not in data: data[k] = [] if "list" in k else {}
-                database = data
-        except: pass
-
-def save_db():
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump(database, f)
-    except:
-        pass
-
-load_db()
-
 def parse_duration(s):
     s = s.lower()
     try: 
-        if "d" in s:
-            return int(s.replace("d",""))*24
-        elif "h" in s:
-            return int(s.replace("h",""))
-        else:
-            return int(s)
+        if "d" in s: return int(s.replace("d",""))*24
+        elif "h" in s: return int(s.replace("h",""))
+        else: return int(s)
     except: return None
 
-# --- DM FUNCTION ---
 async def send_dm_code(user_id, code):
+    if user_id == 0: return False
     try:
         user = await bot.fetch_user(user_id)
         if user:
@@ -95,8 +74,8 @@ async def send_dm_code(user_id, code):
         print(f"DM Failed: {e}")
         return False
 
-# --- DISCORD KICK FUNCTION ---
 async def kick_discord_user(user_id, reason):
+    if user_id == 0: return
     try:
         guild = bot.get_guild(GUILD_ID)
         if guild:
@@ -108,7 +87,40 @@ async def kick_discord_user(user_id, reason):
     except Exception as e:
         print(f"Kick Error: {e}")
 
-# --- BOT EVENTS ---
+def get_key_data(key):
+    doc = db.collection('keys').document(key).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+def update_key_data(key, data):
+    db.collection('keys').document(key).update(data)
+
+def delete_key_data(key):
+    db.collection('keys').document(key).delete()
+
+def is_hwid_banned(hwid):
+    if not hwid: return False
+    docs = db.collection('blacklist_hwids').where('hwid', '==', hwid).stream()
+    return any(docs)
+
+def ban_hwid_db(hwid):
+    if not hwid: return
+    db.collection('blacklist_hwids').document(hwid).set({'hwid': hwid, 'banned_at': time.time()})
+
+def unban_hwid_db(hwid):
+    db.collection('blacklist_hwids').document(hwid).delete()
+
+def is_roblox_banned(rid):
+    doc = db.collection('blacklist_roblox').document(str(rid)).get()
+    return doc.exists
+
+def ban_roblox_db(rid):
+    db.collection('blacklist_roblox').document(str(rid)).set({'id': str(rid), 'banned_at': time.time()})
+
+def unban_roblox_db(rid):
+    db.collection('blacklist_roblox').document(str(rid)).delete()
+
 @bot.event
 async def on_ready():
     print(f"System Online: {bot.user}")
@@ -117,19 +129,26 @@ async def on_ready():
 
 @bot.event
 async def on_member_remove(member):
-    # Adminlerden biri çıkarsa işlem yapma
     if member.id in ADMIN_IDS: return
 
-    deleted = False
-    for key, info in list(database["keys"].items()):
-        if info.get("assigned_id") == member.id:
-            # Kullanıcı çıkarsa HWID'sini blacklist'e al (Güvenlik önlemi)
-            if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
-                database["blacklisted_hwids"].append(info["hwid"])
-            del database["keys"][key]
-            deleted = True
-            break        
-    if deleted: save_db()
+    keys_ref = db.collection('keys')
+    query = keys_ref.where('assigned_id', '==', member.id).stream()
+
+    found_key = False
+    for doc in query:
+        key_data = doc.to_dict()
+        key_id = doc.id
+        
+        if key_data.get('hwid'):
+            ban_hwid_db(key_data['hwid'])
+            print(f"[AUTO-BAN] User {member.name} left. HWID {key_data['hwid']} blacklisted.")
+        
+        delete_key_data(key_id)
+        found_key = True
+        print(f"[AUTO-BAN] User {member.name} left. Key {key_id} deleted.")
+
+    if found_key:
+        print(f"[AUTO-BAN] Cleanup complete for {member.name}.")
 
 async def log_discord(data, uid, status, d_id):
     await bot.wait_until_ready(); c = bot.get_channel(CHANNEL_ID)
@@ -139,11 +158,9 @@ async def log_discord(data, uid, status, d_id):
     rbx_name = f"{data.get('display_name')} (@{data.get('username')})"
     
     if hwid:
-        for k, v in database["keys"].items():
-            if v.get("hwid") == hwid:
-                v["last_roblox_name"] = rbx_name
-                save_db()
-                break
+        docs = db.collection('keys').where('hwid', '==', hwid).stream()
+        for doc in docs:
+            update_key_data(doc.id, {"last_roblox_name": rbx_name})
 
     embed = discord.Embed(title=f"Session Monitor: {status}", color=0x3498DB if status=="Online" else 0xE74C3C)
     embed.add_field(name="User Identity", value=f"**Discord:** {d_id}\n**Roblox:** {rbx_name}")
@@ -158,44 +175,43 @@ async def log_discord(data, uid, status, d_id):
     if uid not in user_sessions: user_sessions[uid]={}
     user_sessions[uid]['msg_id'] = m.id
 
-# --- FLASK ENDPOINTS ---
 @app.route('/', methods=['GET'])
-def home(): return "System Operational"
+def home(): return "Anarchy Firebase System Operational"
 
 @app.route('/verify', methods=['POST'])
-@limiter.limit("10 per minute") # [RATE LIMIT] Dakikada max 10 deneme
+@limiter.limit("10 per minute")
 def verify():
     try:
         data = request.json
         key = data.get("key"); hwid = data.get("hwid")
         username = data.get("username")
         display_name = data.get("display_name")
+
+        if is_hwid_banned(hwid): return jsonify({"valid": False, "msg": "Access Denied: HWID Banned"})
         
-        if hwid in database["blacklisted_hwids"]: return jsonify({"valid": False, "msg": "Access Denied: HWID Banned"})
-        if key not in database["keys"]: return jsonify({"valid": False, "msg": "Invalid License Key"})
-        
-        info = database["keys"][key]
-        
+        info = get_key_data(key)
+        if not info: return jsonify({"valid": False, "msg": "Invalid License Key"})
+
         if username and display_name:
-            info["last_roblox_name"] = f"{display_name} (@{username})"
-            save_db()
+            update_key_data(key, {"last_roblox_name": f"{display_name} (@{username})"})
 
         if time.time() > info["expires"]:
-            del database["keys"][key]; save_db()
+            delete_key_data(key)
             return jsonify({"valid": False, "msg": "License Expired"})
 
-        g = bot.get_guild(GUILD_ID)
-        if g and not g.get_member(info["assigned_id"]):
-            del database["keys"][key]; save_db()
-            return jsonify({"valid": False, "msg": "Discord Membership Required"})
+        if info["assigned_id"] != 0:
+            g = bot.get_guild(GUILD_ID)
+            if g and not g.get_member(info["assigned_id"]):
+                if info.get("hwid"): ban_hwid_db(info["hwid"])
+                delete_key_data(key)
+                return jsonify({"valid": False, "msg": "Discord Membership Required - License Revoked"})
 
         if info["hwid"] == hwid: 
             last_check = info.get("last_otp_verify", 0)
-            if time.time() - last_check > 86400:
+            if time.time() - last_check > 86400 and info["assigned_id"] != 0:
                 if "otp" not in info:
-                    info["otp"] = str(random.randint(100000, 999999))
-                    info["temp_hwid"] = hwid
-                    save_db()
+                    otp_code = str(random.randint(100000, 999999))
+                    update_key_data(key, {"otp": otp_code, "temp_hwid": hwid})
                 
                 asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
                 return jsonify({"valid": False, "msg": "OTP_SENT"})
@@ -204,40 +220,47 @@ def verify():
                 return jsonify({"valid": True, "msg": "Authenticated", "left": f"{rem//86400}d"})
             
         elif info["hwid"] is None:
-            if "otp" not in info:
-                info["otp"] = str(random.randint(100000, 999999))
-                info["temp_hwid"] = hwid
-                save_db()
-            
-            asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
-            return jsonify({"valid": False, "msg": "OTP_SENT"})
+            if info["assigned_id"] == 0:
+                update_key_data(key, {"hwid": hwid})
+                return jsonify({"valid": True, "msg": "Authenticated", "left": "7d"})
+            else:
+                if "otp" not in info:
+                    otp_code = str(random.randint(100000, 999999))
+                    update_key_data(key, {"otp": otp_code, "temp_hwid": hwid})
+                
+                asyncio.run_coroutine_threadsafe(send_dm_code(info["assigned_id"], info["otp"]), bot.loop)
+                return jsonify({"valid": False, "msg": "OTP_SENT"})
             
         else: return jsonify({"valid": False, "msg": "HWID Mismatch"})
 
-    except: return jsonify({"valid": False, "msg": "Internal Server Error"})
+    except Exception as e:
+        print(f"Verify Error: {e}")
+        return jsonify({"valid": False, "msg": "Internal Server Error"})
 
 @app.route('/check_otp', methods=['POST'])
-@limiter.limit("10 per minute") # [RATE LIMIT] OTP deneme sınırı
+@limiter.limit("10 per minute")
 def check_otp():
     try:
         data = request.json
         key = data.get("key"); code = data.get("code")
         
-        if key not in database["keys"]: return jsonify({"valid": False})
-        info = database["keys"][key]
+        info = get_key_data(key)
+        if not info: return jsonify({"valid": False})
         
         if info.get("otp") == code:
-            info["hwid"] = info["temp_hwid"]
-            info["last_otp_verify"] = time.time()
-            if "otp" in info: del info["otp"]
-            if "temp_hwid" in info: del info["temp_hwid"]
+            updates = {
+                "hwid": info["temp_hwid"],
+                "last_otp_verify": time.time(),
+                "otp": firestore.DELETE_FIELD,
+                "temp_hwid": firestore.DELETE_FIELD
+            }
             
             username = data.get("username")
             display_name = data.get("display_name")
             if username and display_name:
-                info["last_roblox_name"] = f"{display_name} (@{username})"
+                updates["last_roblox_name"] = f"{display_name} (@{username})"
             
-            save_db()
+            update_key_data(key, updates)
             rem = int(info["expires"] - time.time())
             return jsonify({"valid": True, "left": f"{rem//86400}d"})
         else:
@@ -248,29 +271,29 @@ def check_otp():
 def update_log():
     data = request.json
     uid = str(data.get("user_id")); hwid = data.get("hwid")
-    if uid in database["blacklisted_ids"] or (hwid and hwid in database["blacklisted_hwids"]):
+    
+    if is_roblox_banned(uid) or is_hwid_banned(hwid):
         return jsonify({"command": "KICK"})
     
     d_str = "Unknown"
     if hwid:
-        for k, v in database["keys"].items():
-            if v.get("hwid") == hwid:
-                u = bot.get_user(v.get("assigned_id"))
-                if u: d_str = f"{u.name} ({u.id})"
-                break
+        docs = db.collection('keys').where('hwid', '==', hwid).stream()
+        for doc in docs:
+            v = doc.to_dict()
+            u = bot.get_user(v.get("assigned_id"))
+            if u: d_str = f"{u.name} ({u.id})"
+            break
                 
     asyncio.run_coroutine_threadsafe(log_discord(data, uid, "Online", d_str), bot.loop)
     return jsonify({"command": "NONE"})
 
 @app.route('/ban', methods=['POST'])
 def ban():
-    # Bu route roblox scripti içinden ID banlamak için
     d = request.json
-    if d.get("target_id") not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(d.get("target_id")); save_db()
+    target_id = str(d.get("target_id"))
+    ban_roblox_db(target_id)
     return jsonify({"success": True})
 
-# --- ROBLOX API ROUTES ---
 @app.route('/network', methods=['POST'])
 @limiter.limit("60 per minute")
 def network():
@@ -280,7 +303,7 @@ def network():
         job_id = data.get("jobId")
         hwid = data.get("hwid")
 
-        if hwid in database["blacklisted_hwids"] or user_id in database["blacklisted_ids"]:
+        if is_hwid_banned(hwid) or is_roblox_banned(user_id):
             return jsonify({"command": "ban", "reason": "Your account has been permanently suspended."})
 
         current_time = time.time()
@@ -334,8 +357,7 @@ def admin_ban():
     target_id = str(data.get("targetId"))
     reason = data.get("reason", "Administrator Ban")
 
-    if target_id not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(target_id)
+    ban_roblox_db(target_id)
 
     hwid_to_ban = None
     if target_id in online_users:
@@ -343,30 +365,26 @@ def admin_ban():
         online_users[target_id]["command"] = "ban"
         online_users[target_id]["reason"] = reason
 
-    if hwid_to_ban and hwid_to_ban not in database["blacklisted_hwids"]:
-        database["blacklisted_hwids"].append(hwid_to_ban)
+    if hwid_to_ban:
+        ban_hwid_db(hwid_to_ban)
 
     key_to_delete = None
     discord_id_to_kick = None
 
     if hwid_to_ban:
-        for k, v in list(database["keys"].items()):
-            if v.get("hwid") == hwid_to_ban:
-                key_to_delete = k
-                discord_id_to_kick = v.get("assigned_id")
-                break
+        docs = db.collection('keys').where('hwid', '==', hwid_to_ban).stream()
+        for doc in docs:
+            key_to_delete = doc.id
+            discord_id_to_kick = doc.to_dict().get("assigned_id")
+            break
     
     if key_to_delete:
-        del database["keys"][key_to_delete]
-
-    save_db()
+        delete_key_data(key_to_delete)
 
     if discord_id_to_kick:
         asyncio.run_coroutine_threadsafe(kick_discord_user(discord_id_to_kick, reason), bot.loop)
 
     return jsonify({"success": True})
-
-# --- DISCORD COMMANDS ---
 
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
@@ -375,9 +393,9 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
         return
     
-    for k, v in database["keys"].items():
-        if v.get("assigned_id") == user.id:
-            await interaction.response.send_message(f"User {user.mention} already possesses an active license.", ephemeral=True); return
+    docs = db.collection('keys').where('assigned_id', '==', user.id).stream()
+    if any(docs):
+        await interaction.response.send_message(f"User {user.mention} already possesses an active license.", ephemeral=True); return
 
     h = parse_duration(duration)
     if not h: await interaction.response.send_message("Invalid duration format.", ephemeral=True); return
@@ -385,23 +403,20 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
     raw = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(16))
     key = f"ANARCHY-{raw}"
     
-    database["keys"][key] = {
+    key_data = {
         "hwid": None, "expires": time.time() + (h * 3600),
         "created_at": time.time(), "duration_txt": duration, 
         "assigned_id": user.id, "last_reset": 0, "last_roblox_name": "N/A",
         "last_otp_verify": 0
     }
-    save_db()
+    
+    db.collection('keys').document(key).set(key_data)
     
     try:
         verified_role = interaction.guild.get_role(VERIFIED_ROLE_ID)
         member_role = interaction.guild.get_role(MEMBER_ROLE_ID)
-
-        if verified_role: 
-            await user.add_roles(verified_role)
-        
-        if member_role:
-            await user.remove_roles(member_role) 
+        if verified_role: await user.add_roles(verified_role)
+        if member_role: await user.remove_roles(member_role) 
     except: pass
 
     await interaction.response.send_message(f"License generated for {user.mention}.\nKey: `{key}`\nDuration: {duration}")
@@ -409,51 +424,33 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
 @bot.tree.command(name="ban", description="Ban a user from Discord, Revoke Key and Ban HWID")
 @app_commands.describe(user="The Discord user to ban", reason="Reason for the ban")
 async def ban_command(interaction: discord.Interaction, user: discord.Member, reason: str = "Violating Rules"):
-    # Yetki Kontrolü
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
         return
 
-    # İşlem Raporu
     actions_taken = []
     
-    # 1. Veritabanından Key ve HWID Kontrolü
-    deleted_key = False
-    banned_hwid = False
-    target_key = None
-
-    for key, info in list(database["keys"].items()):
-        if info.get("assigned_id") == user.id:
-            target_key = key
-            
-            # HWID varsa banla
-            if info.get("hwid") and info["hwid"] not in database["blacklisted_hwids"]:
-                database["blacklisted_hwids"].append(info["hwid"])
-                banned_hwid = True
-                actions_taken.append("HWID Blacklisted")
-            
-            # Key'i sil
-            del database["keys"][key]
-            deleted_key = True
-            actions_taken.append("License Key Revoked")
-            break
+    docs = db.collection('keys').where('assigned_id', '==', user.id).stream()
     
-    if deleted_key or banned_hwid:
-        save_db()
+    for doc in docs:
+        info = doc.to_dict()
+        key_id = doc.id
 
-    # 2. Discord Sunucusundan Banla
-    try:
-        # Kullanıcıya DM atmayı dene
-        try:
-            await user.send(f"You have been banned from Anarchy.\nReason: {reason}")
-        except: pass
+        if info.get("hwid"):
+            ban_hwid_db(info["hwid"])
+            actions_taken.append("HWID Blacklisted")
         
+        delete_key_data(key_id)
+        actions_taken.append("License Key Revoked")
+    
+    try:
+        try: await user.send(f"You have been banned from Anarchy.\nReason: {reason}")
+        except: pass
         await user.ban(reason=reason)
         actions_taken.append("Banned from Discord Server")
     except Exception as e:
         actions_taken.append(f"Failed to ban from Discord: {e}")
 
-    # 3. Sonuç Mesajı
     if not actions_taken:
         actions_taken.append("User had no key/HWID, but tried to ban from Discord.")
     
@@ -466,14 +463,17 @@ async def ban_command(interaction: discord.Interaction, user: discord.Member, re
 
 @bot.tree.command(name="reset_hwid", description="Reset HWID binding")
 async def reset_hwid(interaction: discord.Interaction):
+    docs = db.collection('keys').where('assigned_id', '==', interaction.user.id).stream()
     target_key = None
-    for k, v in database["keys"].items():
-        if v.get("assigned_id") == interaction.user.id:
-            target_key = k
-            break      
+    info = None
+    
+    for doc in docs:
+        target_key = doc.id
+        info = doc.to_dict()
+        break
+        
     if not target_key: await interaction.response.send_message("No active license found.", ephemeral=True); return
         
-    info = database["keys"][target_key]
     last_r = info.get("last_reset", 0)
     
     if time.time() - last_r < 259200 and interaction.user.id not in ADMIN_IDS:
@@ -481,15 +481,15 @@ async def reset_hwid(interaction: discord.Interaction):
         h = remaining // 3600
         await interaction.response.send_message(f"Cooldown active. Please wait {h} hours.", ephemeral=True); return
 
-    info["hwid"] = None
-    info["last_reset"] = time.time()
-    save_db()
+    update_key_data(target_key, {"hwid": None, "last_reset": time.time()})
     await interaction.response.send_message("HWID binding has been reset successfully.")
 
 @bot.tree.command(name="listhwids", description="List banned HWIDs")
 async def listhwids(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: return
-    hwids = database.get("blacklisted_hwids", [])
+    docs = db.collection('blacklist_hwids').stream()
+    hwids = [doc.id for doc in docs]
+    
     if not hwids: await interaction.response.send_message("No banned HWIDs found.", ephemeral=True); return
     lines = [f"**Banned HWID List ({len(hwids)}):**"]
     for hwid in hwids: lines.append(f"`{hwid}`")
@@ -502,39 +502,49 @@ async def listhwids(interaction: discord.Interaction):
 @bot.tree.command(name="delkey", description="Revoke a license key")
 async def delkey(interaction: discord.Interaction, key: str):
     if interaction.user.id not in ADMIN_IDS: return
-    if key in database["keys"]: del database["keys"][key]; save_db(); await interaction.response.send_message("License revoked.")
-    else: await interaction.response.send_message("Key not found.")
+    
+    doc = db.collection('keys').document(key).get()
+    if doc.exists:
+        delete_key_data(key)
+        await interaction.response.send_message("License revoked.")
+    else: 
+        await interaction.response.send_message("Key not found.")
 
 @bot.tree.command(name="ban_roblox_user", description="Ban a Roblox User ID")
 async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
     if interaction.user.id not in ADMIN_IDS: return
-    if roblox_id not in database["blacklisted_ids"]:
-        database["blacklisted_ids"].append(roblox_id)
-        save_db()
-        await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been banned.")
-    else: await interaction.response.send_message("This ID is already banned.")
+    ban_roblox_db(roblox_id)
+    await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been banned.")
 
 @bot.tree.command(name="listkeys", description="List all active licenses")
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: return
-    if not database["keys"]: await interaction.response.send_message("No active licenses.", ephemeral=True); return
+    docs = db.collection('keys').stream()
+    
     lines = []
     g = bot.get_guild(GUILD_ID)
-    for k, v in list(database["keys"].items()):
+    
+    count = 0
+    for doc in docs:
+        count += 1
+        k = doc.id
+        v = doc.to_dict()
         m = g.get_member(v["assigned_id"]) if v.get("assigned_id") else None
-        u = f"{m.name}" if m else "Unknown"
+        u = f"{m.name}" if m else f"ID:{v.get('assigned_id')}"
         rbx = v.get("last_roblox_name", "N/A")
         lines.append(f"Key: `{k}` | User: {u} | Roblox: {rbx} | Term: {v.get('duration_txt')}")
+    
+    if count == 0: await interaction.response.send_message("No active licenses.", ephemeral=True); return
+
     f = discord.File(io.StringIO("\n".join(lines)), filename="active_keys.txt")
-    await interaction.response.send_message("Active License Database:", file=f)
+    await interaction.response.send_message(f"Active License Database ({count}):", file=f)
 
 @bot.tree.command(name="unban_hwid", description="Unban a specific HWID")
 async def unban_hwid(interaction: discord.Interaction, hwid: str):
     if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
     
-    if hwid in database.get("blacklisted_hwids", []):
-        database["blacklisted_hwids"].remove(hwid)
-        save_db()
+    if is_hwid_banned(hwid):
+        unban_hwid_db(hwid)
         await interaction.response.send_message(f"HWID `{hwid}` has been unbanned.", ephemeral=True)
     else:
         await interaction.response.send_message("HWID not found in blacklist.", ephemeral=True)
@@ -543,9 +553,8 @@ async def unban_hwid(interaction: discord.Interaction, hwid: str):
 async def unban_roblox_user(interaction: discord.Interaction, roblox_id: str):
     if interaction.user.id not in ADMIN_IDS: await interaction.response.send_message("Unauthorized access.", ephemeral=True); return
     
-    if roblox_id in database.get("blacklisted_ids", []):
-        database["blacklisted_ids"].remove(roblox_id)
-        save_db()
+    if is_roblox_banned(roblox_id):
+        unban_roblox_db(roblox_id)
         await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been unbanned.", ephemeral=True)
     else:
         await interaction.response.send_message("ID not found in blacklist.", ephemeral=True)
