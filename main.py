@@ -77,6 +77,7 @@ def update_ban_cache():
             print(f"Cache update hatasi: {e}")
 
 update_ban_cache()
+
 def parse_duration(s):
     s = s.lower()
     try: 
@@ -475,8 +476,15 @@ def admin_ban():
         asyncio.run_coroutine_threadsafe(kick_discord_user(discord_id_to_kick, reason), bot.loop)
 
     return jsonify({"success": True})
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"⏳ **Sakin ol!** {error.retry_after:.1f} saniye beklemelisin.", ephemeral=True)
+    else:
+        print(f"Hata: {error}")
 
 @bot.tree.command(name="getkey", description="Retrieve your active license key")
+@app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.guild_id, i.user.id))
 async def getkey(interaction: discord.Interaction):
     TARGET_GUILD_ID = 1460981897730592798
     if interaction.guild_id != TARGET_GUILD_ID:
@@ -502,6 +510,7 @@ async def getkey(interaction: discord.Interaction):
 
 @bot.tree.command(name="genkey", description="Generate a new license key")
 @app_commands.describe(duration="30d, 12h", user="User")
+@app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
 async def genkey(interaction: discord.Interaction, duration: str, user: discord.Member):
     if interaction.user.id not in ADMIN_IDS: 
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
@@ -537,6 +546,7 @@ async def genkey(interaction: discord.Interaction, duration: str, user: discord.
 
 @bot.tree.command(name="ban", description="Ban a user from Discord, Revoke Key and Ban HWID")
 @app_commands.describe(user="The Discord user to ban", reason="Reason for the ban")
+@app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
 async def ban_command(interaction: discord.Interaction, user: discord.Member, reason: str = "Violating Rules"):
     if interaction.user.id not in ADMIN_IDS:
         await interaction.response.send_message("Unauthorized access.", ephemeral=True)
@@ -576,6 +586,7 @@ async def ban_command(interaction: discord.Interaction, user: discord.Member, re
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="reset_hwid", description="Reset HWID binding")
+@app_commands.checks.cooldown(1, 60.0, key=lambda i: (i.guild_id, i.user.id))
 async def reset_hwid(interaction: discord.Interaction):
     docs = db.collection('keys').where('assigned_id', '==', interaction.user.id).stream()
     target_key = None
@@ -599,6 +610,7 @@ async def reset_hwid(interaction: discord.Interaction):
     await interaction.response.send_message("HWID binding has been reset successfully.")
 
 @bot.tree.command(name="listhwids", description="List banned HWIDs")
+@app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.guild_id, i.user.id))
 async def listhwids(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: return
     docs = db.collection('blacklist_hwids').stream()
@@ -631,9 +643,10 @@ async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
     await interaction.response.send_message(f"Roblox ID `{roblox_id}` has been banned.")
 
 @bot.tree.command(name="listkeys", description="List all active licenses")
+@app_commands.checks.cooldown(1, 30.0, key=lambda i: (i.guild_id, i.user.id))
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: return
-    docs = db.collection('keys').limit(50).stream() 
+    docs = db.collection('keys').stream()
     
     lines = []
     g = bot.get_guild(GUILD_ID)
