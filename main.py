@@ -57,6 +57,26 @@ user_sessions = {}
 log_cooldowns = {}
 webhook_spam_map = {} 
 
+BAN_CACHE = {
+    "hwids": set(),
+    "roblox_ids": set(),
+    "last_update": 0
+}
+
+def update_ban_cache():
+    if time.time() - BAN_CACHE["last_update"] > 60:
+        try:
+            hwid_docs = db.collection('blacklist_hwids').stream()
+            BAN_CACHE["hwids"] = {doc.to_dict().get('hwid') for doc in hwid_docs}
+            
+            rbx_docs = db.collection('blacklist_roblox').stream()
+            BAN_CACHE["roblox_ids"] = {doc.id for doc in rbx_docs}
+            
+            BAN_CACHE["last_update"] = time.time()
+        except Exception as e:
+            print(f"Cache update hatasi: {e}")
+
+update_ban_cache()
 def parse_duration(s):
     s = s.lower()
     try: 
@@ -93,38 +113,59 @@ async def kick_discord_user(user_id, reason):
         print(f"Kick Error: {e}")
 
 def get_key_data(key):
-    doc = db.collection('keys').document(key).get()
-    if doc.exists:
-        return doc.to_dict()
+    try:
+        doc = db.collection('keys').document(key).get()
+        if doc.exists:
+            return doc.to_dict()
+    except Exception as e:
+        print(f"DB Read Error: {e}")
     return None
 
 def update_key_data(key, data):
-    db.collection('keys').document(key).update(data)
+    try:
+        db.collection('keys').document(key).update(data)
+    except: pass
 
 def delete_key_data(key):
-    db.collection('keys').document(key).delete()
+    try:
+        db.collection('keys').document(key).delete()
+    except: pass
 
 def is_hwid_banned(hwid):
     if not hwid: return False
-    docs = db.collection('blacklist_hwids').where('hwid', '==', hwid).stream()
-    return any(docs)
+    update_ban_cache()
+    return hwid in BAN_CACHE["hwids"]
 
 def ban_hwid_db(hwid):
     if not hwid: return
-    db.collection('blacklist_hwids').document(hwid).set({'hwid': hwid, 'banned_at': time.time()})
+    try:
+        db.collection('blacklist_hwids').document(hwid).set({'hwid': hwid, 'banned_at': time.time()})
+        BAN_CACHE["hwids"].add(hwid)
+    except: pass
 
 def unban_hwid_db(hwid):
-    db.collection('blacklist_hwids').document(hwid).delete()
+    try:
+        db.collection('blacklist_hwids').document(hwid).delete()
+        if hwid in BAN_CACHE["hwids"]: BAN_CACHE["hwids"].remove(hwid)
+    except: pass
 
 def is_roblox_banned(rid):
-    doc = db.collection('blacklist_roblox').document(str(rid)).get()
-    return doc.exists
+    update_ban_cache()
+    return str(rid) in BAN_CACHE["roblox_ids"]
 
 def ban_roblox_db(rid):
-    db.collection('blacklist_roblox').document(str(rid)).set({'id': str(rid), 'banned_at': time.time()})
+    rid = str(rid)
+    try:
+        db.collection('blacklist_roblox').document(rid).set({'id': rid, 'banned_at': time.time()})
+        BAN_CACHE["roblox_ids"].add(rid)
+    except: pass
 
 def unban_roblox_db(rid):
-    db.collection('blacklist_roblox').document(str(rid)).delete()
+    rid = str(rid)
+    try:
+        db.collection('blacklist_roblox').document(rid).delete()
+        if rid in BAN_CACHE["roblox_ids"]: BAN_CACHE["roblox_ids"].remove(rid)
+    except: pass
 
 @bot.event
 async def on_ready():
@@ -330,27 +371,10 @@ def update_log():
 
     if not hwid: return jsonify({"command": "NONE"})
 
-    docs = db.collection('keys').where('hwid', '==', hwid).stream()
-    is_valid_customer = False
-    d_str = "Unknown"
-    
-    for doc in docs:
-        is_valid_customer = True
-        v = doc.to_dict()
-        if v.get("assigned_id") != 0:
-            u = bot.get_user(v.get("assigned_id"))
-            if u: d_str = f"{u.id} ({u.name})"
-        else:
-            d_str = v.get("notes", "Imported User")
-        break
-    
-    if not is_valid_customer:
-        return jsonify({"command": "NONE"})
-    
     if is_roblox_banned(uid) or is_hwid_banned(hwid):
         return jsonify({"command": "KICK"})
-                
-    asyncio.run_coroutine_threadsafe(log_discord(data, uid, "Online", d_str), bot.loop)
+    
+    asyncio.run_coroutine_threadsafe(log_discord(data, uid, "Online", "User"), bot.loop)
     return jsonify({"command": "NONE"})
 
 @app.route('/ban', methods=['POST'])
@@ -609,7 +633,7 @@ async def ban_roblox_user(interaction: discord.Interaction, roblox_id: str):
 @bot.tree.command(name="listkeys", description="List all active licenses")
 async def listkeys(interaction: discord.Interaction):
     if interaction.user.id not in ADMIN_IDS: return
-    docs = db.collection('keys').stream()
+    docs = db.collection('keys').limit(50).stream() 
     
     lines = []
     g = bot.get_guild(GUILD_ID)
